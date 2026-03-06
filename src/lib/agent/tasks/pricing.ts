@@ -93,6 +93,18 @@ After calculating all prices (in propose mode), output this exact block so the U
 }
 [/PROPOSAL]
 
+## Memory & Learning
+
+You have access to a shared organizational memory store. Use it actively:
+
+- **search_memories**: Before or during pricing, call this to check for past context. Use tags like "customer:CustomerName", "style:PC54", "order:1234". If there are notes about this customer's pricing preferences or past corrections, factor them in.
+- **save_memory**: After noticing something worth remembering (a vendor cost increase, a customer pattern, a decision you had to make), save it. Future runs will see it. Examples:
+  - "Customer Acme Corp had garment prices raised 8% above standard — possible contract rate"
+  - "SanMar PC54 Navy cost is now $4.10, up from $3.85"
+  - "This customer always uses Lights matrix even for medium-dark shirts"
+
+You don't need to search memories for every run — use your judgment about when past context would be useful.
+
 Think carefully, be methodical, and explain what you're finding as you work through the order.`,
 
   tools: [
@@ -102,6 +114,8 @@ Think carefully, be methodical, and explain what you're finding as you work thro
     'get_vendor_cost_sanmar',
     'get_vendor_cost_ss',
     'calculate_price',
-    'set_line_price'
+    'set_line_price',
+    'save_memory',
+    'search_memories'
   ]
 }
