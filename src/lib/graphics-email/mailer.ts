@@ -29,7 +29,7 @@ export async function sendGraphicsEmail(options: {
 }): Promise<void> {
   const transporter = createTransport()
 
-  const to = process.env.EMAIL_TO || 'sales@colorgraphicswa.com'
+  const to = process.env.EMAIL_TO || 'salesteam@colorgraphicswa.com'
   const from = `"Color Graphics" <${process.env.EMAIL_USER || 'kiley@colorgraphicswa.com'}>`
 
   await transporter.sendMail({
