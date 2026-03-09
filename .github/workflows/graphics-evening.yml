@@ -1,0 +1,36 @@
+name: Graphics Queue — Evening Snapshot
+
+on:
+  schedule:
+    # 5:30 PM PST (UTC-8) = 01:30 UTC next day  |  5:30 PM PDT (UTC-7) = 00:30 UTC next day
+    # Using 01:30 UTC (winter/PST). During summer (PDT) this fires at 6:30 PM PT.
+    # To switch to PDT (summer), change to: '30 0 * * 2-6'
+    - cron: '30 1 * * 2-6'    # Tue–Sat UTC = Mon–Fri PT evening
+  workflow_dispatch:           # allow manual trigger from GitHub Actions tab
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run evening snapshot script
+        env:
+          SYNCORE_API_KEY: ${{ secrets.SYNCORE_API_KEY }}
+          SYNCORE_GRAPHICS_DEPT_ID: ${{ secrets.SYNCORE_GRAPHICS_DEPT_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
+          FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
+        run: npx ts-node --project tsconfig.scripts.json -r tsconfig-paths/register src/scripts/graphics-evening.ts
