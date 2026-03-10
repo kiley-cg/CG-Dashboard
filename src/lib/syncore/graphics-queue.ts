@@ -166,20 +166,25 @@ async function login(): Promise<void> {
     throw new Error(`Login failed: HTTP ${postRes.status}\n${body.slice(0, 500)}`)
   }
 
-  // Follow the post-login redirect so we complete the auth handshake and
-  // collect any additional session cookies (e.g. ASPSESSIONID on us.)
-  const location = postRes.headers.get('location')
-  if (location) {
-    const redirectUrl = resolveUrl(actionUrl, location)
-    console.log(`[ateasi] Following post-login redirect → ${redirectUrl}`)
-    const redirectRes = await fetch(redirectUrl, {
+  // Follow the post-login redirect manually (cookie must be re-sent on each hop)
+  let location = postRes.headers.get('location')
+  let currentUrl = actionUrl
+  let hops = 0
+  while (location && hops++ < 10) {
+    currentUrl = resolveUrl(currentUrl, location)
+    console.log(`[ateasi] Following post-login redirect → ${currentUrl}`)
+    const redirectRes = await fetch(currentUrl, {
       headers: {
         'Cookie': cookieHeader(),
         'User-Agent': 'Mozilla/5.0 (compatible; automation)',
       },
+      redirect: 'manual',
     })
     storeCookies(redirectRes)
-    console.log(`[ateasi] Redirect → HTTP ${redirectRes.status} final: ${redirectRes.url} | Cookies now: ${Object.keys(sessionCookies).join(', ')}`)
+    console.log(`[ateasi] Redirect → HTTP ${redirectRes.status} ${redirectRes.headers.get('location') ?? ''} | Cookies: ${Object.keys(sessionCookies).join(', ')}`)
+    location = redirectRes.status >= 300 && redirectRes.status < 400
+      ? redirectRes.headers.get('location')
+      : null
   }
 
   loggedIn = true
@@ -187,16 +192,32 @@ async function login(): Promise<void> {
 }
 
 // ── Authenticated GET ─────────────────────────────────────────────────────────
+// Use redirect:'manual' throughout so our Cookie header is never stripped by
+// Node's fetch when following cross-origin or same-origin redirect hops.
 
-async function authedGet(pathOrUrl: string): Promise<Response> {
-  const url = pathOrUrl.startsWith('http') ? pathOrUrl : `${SITE}${pathOrUrl}`
-  return fetch(url, {
-    headers: {
-      'Cookie': cookieHeader(),
-      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
-      'Accept': 'text/html,application/xhtml+xml,*/*',
-    },
-  })
+async function authedGet(pathOrUrl: string, maxRedirects = 10): Promise<Response> {
+  let currentUrl = pathOrUrl.startsWith('http') ? pathOrUrl : `${SITE}${pathOrUrl}`
+
+  for (let i = 0; i < maxRedirects; i++) {
+    const res = await fetch(currentUrl, {
+      headers: {
+        'Cookie': cookieHeader(),
+        'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+        'Accept': 'text/html,application/xhtml+xml,*/*',
+      },
+      redirect: 'manual',
+    })
+    storeCookies(res)
+
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location')
+      if (!location) return res
+      currentUrl = resolveUrl(currentUrl, location)
+      continue
+    }
+    return res
+  }
+  throw new Error(`Too many redirects for ${pathOrUrl}`)
 }
 
 // ── Find Graphic Services URL ─────────────────────────────────────────────────
@@ -236,7 +257,8 @@ async function findGraphicServicesUrl(): Promise<string> {
   for (const path of fallbacks) {
     const r = await authedGet(path)
     const text = await r.text()
-    console.log(`[ateasi] GET ${path} → ${r.status} | ${text.slice(0, 100).replace(/\s+/g, ' ')}`)
+    const snippet = text.slice(0, 200).replace(/\s+/g, ' ')
+    console.log(`[ateasi] GET ${path} → ${r.status} | hasLogin:${text.includes('Account/Login')} | ${snippet}`)
     if (r.status === 200 && /graphic/i.test(text) && !text.includes('Account/Login')) {
       graphicServicesUrl = `${SITE}${path}`
       console.log(`[ateasi] Found Graphic Services URL (fallback): ${graphicServicesUrl}`)
