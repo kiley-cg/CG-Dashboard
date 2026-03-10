@@ -142,31 +142,51 @@ async function authedPost(path: string, body: Record<string, unknown> | URLSearc
 // ── Job data discovery ────────────────────────────────────────────────────────
 
 /**
- * Candidate endpoints to try for graphics queue data.
- * Logs status + first 300 chars of each response so we can identify the right one.
+ * Fetch /Jobs HTML and print all inline <script> lines that mention
+ * ajax/url/fetch/api/json so we can identify the DataTables data source.
  */
-async function discoverJobEndpoints() {
-  const candidates = [
-    { method: 'GET', path: '/api/jobs' },
-    { method: 'GET', path: '/api/v1/jobs' },
-    { method: 'GET', path: '/api/orders/jobs' },
-    { method: 'GET', path: '/Jobs' },
-    { method: 'GET', path: '/Jobs/Index' },
-    { method: 'GET', path: '/Production/Jobs' },
-    { method: 'GET', path: '/Graphics/Jobs' },
-    { method: 'POST', path: '/Jobs/GetJobs' },
-    { method: 'POST', path: '/Jobs/DataTable' },
-    { method: 'POST', path: '/Production/GetJobs' },
-  ]
+async function discoverAjaxEndpoints() {
+  const res = await authedGet('/Jobs')
+  const html = await res.text()
 
-  for (const { method, path } of candidates) {
+  // Extract every <script>...</script> block
+  const scriptBlocks: string[] = []
+  const scriptRe = /<script\b[^>]*>([\s\S]*?)<\/script>/gi
+  let m: RegExpExecArray | null
+  while ((m = scriptRe.exec(html)) !== null) {
+    scriptBlocks.push(m[1])
+  }
+
+  const interestingLines: string[] = []
+  const keywords = /ajax|\"url\"|'url'|\bfetch\b|\/api\/|\.json|GetJobs|DataTable|datatable|sAjax/i
+  for (const block of scriptBlocks) {
+    for (const line of block.split('\n')) {
+      if (keywords.test(line)) {
+        interestingLines.push(line.trim())
+      }
+    }
+  }
+
+  console.log(`[syncore] /Jobs script scan — ${interestingLines.length} interesting lines:`)
+  for (const l of interestingLines) {
+    console.log(`  ${l.slice(0, 200)}`)
+  }
+
+  // Also try /api/jobs with a few action suffixes
+  const apiPaths = [
+    '/api/jobs/GetAll',
+    '/api/jobs/List',
+    '/api/jobs/Search',
+    '/api/jobs/GetByDepartment',
+    '/api/jobs?status=InProduction',
+  ]
+  for (const path of apiPaths) {
     try {
-      const res = method === 'GET' ? await authedGet(path) : await authedPost(path, {})
-      const text = await res.text()
-      const preview = text.slice(0, 300).replace(/\s+/g, ' ')
-      console.log(`[syncore] ${method} ${path} → ${res.status} | ${preview}`)
+      const r = await authedGet(path)
+      const text = await r.text()
+      console.log(`[syncore] GET ${path} → ${r.status} | ${text.slice(0, 200).replace(/\s+/g, ' ')}`)
     } catch (err) {
-      console.log(`[syncore] ${method} ${path} → ERROR: ${err}`)
+      console.log(`[syncore] GET ${path} → ERROR: ${err}`)
     }
   }
 }
@@ -230,9 +250,8 @@ function mapJob(raw: Record<string, unknown>): GraphicsJob {
 export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
   await login()
 
-  // On first run, discover available endpoints so we can identify the right one
-  console.log('[syncore] --- Discovering job endpoints ---')
-  await discoverJobEndpoints()
+  console.log('[syncore] --- Scanning /Jobs page for AJAX endpoints ---')
+  await discoverAjaxEndpoints()
   console.log('[syncore] --- Discovery complete ---')
 
   // TODO: once the correct endpoint is identified from the discovery output above,
