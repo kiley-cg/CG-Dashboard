@@ -164,6 +164,33 @@ async function login(): Promise<void> {
     throw new Error(`Login failed: HTTP ${postRes.status}\n${body.slice(0, 500)}`)
   }
 
+  // Follow the post-login redirect so we complete the auth handshake and
+  // collect any additional session cookies (e.g. ASPSESSIONID on us.)
+  const location = postRes.headers.get('location')
+  if (location) {
+    const redirectUrl = resolveUrl(actionUrl, location)
+    console.log(`[ateasi] Following post-login redirect → ${redirectUrl}`)
+    const redirectRes = await fetch(redirectUrl, {
+      headers: {
+        'Cookie': cookieHeader(),
+        'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+      },
+    })
+    storeCookies(redirectRes)
+    console.log(`[ateasi] Redirect → HTTP ${redirectRes.status} final: ${redirectRes.url} | Cookies now: ${Object.keys(sessionCookies).join(', ')}`)
+  }
+
+  // Now access the us. subdomain to obtain its session cookie
+  console.log(`[ateasi] GET ${SITE}/index.asp (post-login)`)
+  const usRes = await fetch(`${SITE}/index.asp`, {
+    headers: {
+      'Cookie': cookieHeader(),
+      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+    },
+  })
+  storeCookies(usRes)
+  console.log(`[ateasi] us.index.asp → HTTP ${usRes.status} final: ${usRes.url} | Cookies now: ${Object.keys(sessionCookies).join(', ')}`)
+
   loggedIn = true
   console.log('[ateasi] Login successful')
 }
@@ -189,17 +216,22 @@ async function findGraphicServicesUrl(): Promise<string> {
   // Follow home page then scan nav links for "Graphic Services"
   const res = await authedGet('/index.asp')
   const html = await res.text()
+  console.log(`[ateasi] findGraphicServicesUrl: /index.asp → HTTP ${res.status} final: ${res.url}`)
+  console.log(`[ateasi] page snippet: ${html.slice(0, 400).replace(/\s+/g, ' ')}`)
 
   const linkRe = /href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
   let m: RegExpExecArray | null
+  const allLinks: string[] = []
   while ((m = linkRe.exec(html)) !== null) {
     const text = m[2].replace(/<[^>]+>/g, '').trim()
+    if (text) allLinks.push(`${text.slice(0, 40)} → ${m[1]}`)
     if (/graphic[\s_-]?services?/i.test(text) || /graphic[\s_-]?services?/i.test(m[1])) {
       graphicServicesUrl = resolveUrl(res.url, m[1])
       console.log(`[ateasi] Found Graphic Services URL: ${graphicServicesUrl}`)
       return graphicServicesUrl
     }
   }
+  console.log(`[ateasi] All links found (${allLinks.length}):`, allLinks.slice(0, 20).join(' | '))
 
   // Fallback — try common ASP page names
   const fallbacks = [
