@@ -10,7 +10,9 @@
  * - SYNCORE_PASSWORD: Login password
  */
 
-const SITE = 'https://us.ateasesystems.net'
+// www. is the ASP.NET MVC app where auth works. us. has a separate session
+// mechanism that doesn't share the .ASPXAUTH cookie, so we stay on www.
+const SITE = 'https://www.ateasesystems.net'
 
 // ── Cookie jar ────────────────────────────────────────────────────────────────
 
@@ -180,17 +182,6 @@ async function login(): Promise<void> {
     console.log(`[ateasi] Redirect → HTTP ${redirectRes.status} final: ${redirectRes.url} | Cookies now: ${Object.keys(sessionCookies).join(', ')}`)
   }
 
-  // Now access the us. subdomain to obtain its session cookie
-  console.log(`[ateasi] GET ${SITE}/index.asp (post-login)`)
-  const usRes = await fetch(`${SITE}/index.asp`, {
-    headers: {
-      'Cookie': cookieHeader(),
-      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
-    },
-  })
-  storeCookies(usRes)
-  console.log(`[ateasi] us.index.asp → HTTP ${usRes.status} final: ${usRes.url} | Cookies now: ${Object.keys(sessionCookies).join(', ')}`)
-
   loggedIn = true
   console.log('[ateasi] Login successful')
 }
@@ -213,11 +204,10 @@ async function authedGet(pathOrUrl: string): Promise<Response> {
 async function findGraphicServicesUrl(): Promise<string> {
   if (graphicServicesUrl) return graphicServicesUrl
 
-  // Follow home page then scan nav links for "Graphic Services"
-  const res = await authedGet('/index.asp')
+  // Scan the Jobs page on www. for a Graphic Services link
+  const res = await authedGet('/Jobs')
   const html = await res.text()
-  console.log(`[ateasi] findGraphicServicesUrl: /index.asp → HTTP ${res.status} final: ${res.url}`)
-  console.log(`[ateasi] page snippet: ${html.slice(0, 400).replace(/\s+/g, ' ')}`)
+  console.log(`[ateasi] GET /Jobs → HTTP ${res.status} final: ${res.url}`)
 
   const linkRe = /href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
   let m: RegExpExecArray | null
@@ -231,24 +221,26 @@ async function findGraphicServicesUrl(): Promise<string> {
       return graphicServicesUrl
     }
   }
-  console.log(`[ateasi] All links found (${allLinks.length}):`, allLinks.slice(0, 20).join(' | '))
+  console.log(`[ateasi] All links on /Jobs (${allLinks.length}):`, allLinks.slice(0, 30).join(' | '))
 
-  // Fallback — try common ASP page names
+  // Fallback — try likely www. ASP.NET MVC paths
   const fallbacks = [
-    '/graphic_services.asp',
-    '/graphicservices.asp',
-    '/jobs_graphic.asp',
-    '/graphic.asp',
+    '/Jobs/GraphicServices',
+    '/Jobs/Graphic',
+    '/Jobs/GraphicsServices',
+    '/GraphicServices',
+    '/GraphicsServices',
+    '/Graphics/Services',
+    '/Jobs/Graphics',
   ]
   for (const path of fallbacks) {
     const r = await authedGet(path)
-    if (r.status === 200) {
-      const text = await r.text()
-      if (/graphic/i.test(text)) {
-        graphicServicesUrl = `${SITE}${path}`
-        console.log(`[ateasi] Found Graphic Services URL (fallback): ${graphicServicesUrl}`)
-        return graphicServicesUrl
-      }
+    const text = await r.text()
+    console.log(`[ateasi] GET ${path} → ${r.status} | ${text.slice(0, 100).replace(/\s+/g, ' ')}`)
+    if (r.status === 200 && /graphic/i.test(text) && !text.includes('Account/Login')) {
+      graphicServicesUrl = `${SITE}${path}`
+      console.log(`[ateasi] Found Graphic Services URL (fallback): ${graphicServicesUrl}`)
+      return graphicServicesUrl
     }
   }
 
