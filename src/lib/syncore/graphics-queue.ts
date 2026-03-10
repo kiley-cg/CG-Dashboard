@@ -1,144 +1,216 @@
 /**
- * Syncore Graphics Queue Fetcher
+ * Ateasi / Syncore Graphics Queue Fetcher
  *
- * Fetches all jobs currently in the graphics/production queue from Syncore CRM.
- * Uses username/password login to obtain a Bearer token, then queries the jobs API.
+ * Authenticates against https://www.ateasesystems.net using cookie-based
+ * ASP.NET session auth, then fetches graphics queue job data.
  *
- * CONFIGURATION (GitHub Secrets / env vars):
- * - SYNCORE_EMAIL:            Login email (e.g. __automation@colorgraphicswa.com)
+ * CONFIGURATION (GitHub Secrets):
+ * - SYNCORE_EMAIL:            Login email (__automation@colorgraphicswa.com)
  * - SYNCORE_PASSWORD:         Login password
- * - SYNCORE_GRAPHICS_DEPT_ID: Optional. Department ID to filter to graphics only.
- * - SYNCORE_JOB_STATUS:       Optional. Job status filter (default: "open").
- *                             Check Syncore for valid values if "open" doesn't work.
+ * - SYNCORE_GRAPHICS_DEPT_ID: Optional department ID filter
+ * - SYNCORE_JOB_STATUS:       Optional status filter
  */
 
-const BASE = 'https://api.syncore.app/v2'
-const AUTH_BASE = 'https://api.syncore.app'
+const SITE = 'https://www.ateasesystems.net'
 
-let cachedToken: string | null = null
+// ── Cookie jar (simple in-process store) ─────────────────────────────────────
 
-// Syncore auth endpoint candidates (tried in order until one succeeds)
-const LOGIN_ENDPOINTS = [
-  `${AUTH_BASE}/auth/login`,
-  `${AUTH_BASE}/v2/auth/token`,
-  `${AUTH_BASE}/v2/users/login`,
-  `${AUTH_BASE}/v2/account/login`,
-]
+let sessionCookies: Record<string, string> = {}
 
-async function login(): Promise<string> {
-  if (cachedToken) return cachedToken
+function parseCookies(header: string | null): Record<string, string> {
+  if (!header) return {}
+  const result: Record<string, string> = {}
+  // Set-Cookie can be multi-value; split on ", " only at cookie boundaries
+  const parts = header.split(/,\s*(?=[A-Za-z0-9_-]+=)/)
+  for (const part of parts) {
+    const [nameVal] = part.split(';')
+    const eq = nameVal.indexOf('=')
+    if (eq === -1) continue
+    const name = nameVal.slice(0, eq).trim()
+    const value = nameVal.slice(eq + 1).trim()
+    result[name] = value
+  }
+  return result
+}
+
+function cookieHeader(): string {
+  return Object.entries(sessionCookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ')
+}
+
+function storeCookies(res: Response) {
+  // node-fetch exposes all Set-Cookie via getAll; native fetch only gives first
+  const raw = res.headers.get('set-cookie')
+  Object.assign(sessionCookies, parseCookies(raw))
+}
+
+// ── CSRF token extraction ─────────────────────────────────────────────────────
+
+function extractAntiForgery(html: string): string | null {
+  const m =
+    html.match(/name="__RequestVerificationToken"[^>]+value="([^"]+)"/) ||
+    html.match(/value="([^"]+)"[^>]+name="__RequestVerificationToken"/)
+  return m ? m[1] : null
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+
+let loggedIn = false
+
+async function login(): Promise<void> {
+  if (loggedIn) return
 
   const email = process.env.SYNCORE_EMAIL
   const password = process.env.SYNCORE_PASSWORD
-  if (!email || !password) {
-    throw new Error('SYNCORE_EMAIL and SYNCORE_PASSWORD must be set')
+  if (!email || !password) throw new Error('SYNCORE_EMAIL and SYNCORE_PASSWORD must be set')
+
+  // Step 1: GET login page → capture initial cookies + CSRF token
+  console.log(`[syncore] GET ${SITE}/Account/Login`)
+  const getRes = await fetch(`${SITE}/Account/Login`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; automation)' }
+  })
+  storeCookies(getRes)
+  const html = await getRes.text()
+
+  const csrfToken = extractAntiForgery(html)
+  if (!csrfToken) {
+    console.log('[syncore] WARNING: __RequestVerificationToken not found — attempting login without it')
+  } else {
+    console.log('[syncore] CSRF token extracted')
   }
 
-  const body = JSON.stringify({ email, password })
-  const headers = { 'Content-Type': 'application/json' }
+  // Step 2: POST credentials
+  const form = new URLSearchParams()
+  form.set('Email', email)
+  form.set('Password', password)
+  if (csrfToken) form.set('__RequestVerificationToken', csrfToken)
 
-  let lastError = ''
-  for (const endpoint of LOGIN_ENDPOINTS) {
-    const res = await fetch(endpoint, { method: 'POST', headers, body })
-    if (res.status === 404) {
-      console.log(`[syncore] ${endpoint} → 404, trying next...`)
-      continue
+  console.log(`[syncore] POST ${SITE}/Account/Login`)
+  const postRes = await fetch(`${SITE}/Account/Login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookieHeader(),
+      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+      'Referer': `${SITE}/Account/Login`,
+    },
+    body: form.toString(),
+    redirect: 'manual',
+  })
+
+  storeCookies(postRes)
+  console.log(`[syncore] Login response: HTTP ${postRes.status} | Location: ${postRes.headers.get('location') || '(none)'} | Cookies set: ${Object.keys(sessionCookies).join(', ')}`)
+
+  if (postRes.status !== 200 && postRes.status !== 302 && postRes.status !== 301) {
+    const body = await postRes.text()
+    throw new Error(`Login failed: HTTP ${postRes.status}\n${body.slice(0, 500)}`)
+  }
+
+  loggedIn = true
+  console.log('[syncore] Login successful')
+}
+
+// ── Authenticated GET helper ──────────────────────────────────────────────────
+
+async function authedGet(path: string): Promise<Response> {
+  return fetch(`${SITE}${path}`, {
+    headers: {
+      'Cookie': cookieHeader(),
+      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/html, */*',
     }
-    if (!res.ok) {
+  })
+}
+
+async function authedPost(path: string, body: Record<string, unknown> | URLSearchParams): Promise<Response> {
+  const isJson = !(body instanceof URLSearchParams)
+  return fetch(`${SITE}${path}`, {
+    method: 'POST',
+    headers: {
+      'Cookie': cookieHeader(),
+      'Content-Type': isJson ? 'application/json' : 'application/x-www-form-urlencoded',
+      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, */*',
+    },
+    body: isJson ? JSON.stringify(body) : body.toString(),
+  })
+}
+
+// ── Job data discovery ────────────────────────────────────────────────────────
+
+/**
+ * Candidate endpoints to try for graphics queue data.
+ * Logs status + first 300 chars of each response so we can identify the right one.
+ */
+async function discoverJobEndpoints() {
+  const candidates = [
+    { method: 'GET', path: '/api/jobs' },
+    { method: 'GET', path: '/api/v1/jobs' },
+    { method: 'GET', path: '/api/orders/jobs' },
+    { method: 'GET', path: '/Jobs' },
+    { method: 'GET', path: '/Jobs/Index' },
+    { method: 'GET', path: '/Production/Jobs' },
+    { method: 'GET', path: '/Graphics/Jobs' },
+    { method: 'POST', path: '/Jobs/GetJobs' },
+    { method: 'POST', path: '/Jobs/DataTable' },
+    { method: 'POST', path: '/Production/GetJobs' },
+  ]
+
+  for (const { method, path } of candidates) {
+    try {
+      const res = method === 'GET' ? await authedGet(path) : await authedPost(path, {})
       const text = await res.text()
-      lastError = `HTTP ${res.status} at ${endpoint} — ${text}`
-      console.log(`[syncore] ${endpoint} → ${res.status}: ${text}`)
-      continue
+      const preview = text.slice(0, 300).replace(/\s+/g, ' ')
+      console.log(`[syncore] ${method} ${path} → ${res.status} | ${preview}`)
+    } catch (err) {
+      console.log(`[syncore] ${method} ${path} → ERROR: ${err}`)
     }
-
-    const data = await res.json() as Record<string, unknown>
-    const token =
-      (data.token as string) ||
-      (data.access_token as string) ||
-      (data.accessToken as string) ||
-      ((data.data as Record<string, unknown>)?.token as string) ||
-      null
-
-    if (!token) {
-      lastError = `Login succeeded at ${endpoint} but no token in response. Keys: ${Object.keys(data).join(', ')}`
-      console.log(`[syncore] ${lastError}`)
-      continue
-    }
-
-    console.log(`[syncore] Logged in via ${endpoint}`)
-    cachedToken = token
-    return token
-  }
-
-  throw new Error(`Syncore login failed — all endpoints exhausted. Last error: ${lastError}`)
-}
-
-function bearerHeaders(token: string) {
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json'
   }
 }
+
+// ── Export interfaces ─────────────────────────────────────────────────────────
 
 export interface GraphicsJob {
-  /** Syncore internal job ID — used as the stable key for diff comparisons */
   id: string
-  /** Human-readable job number shown on the tracker (e.g., "32026") */
   jobNumber: string
-  /** Current production status: "In Progress", "Submitted", "On Hold", etc. */
   status: string
-  /** Assigned designer name, or null if unassigned */
   designer: string | null
-  /** Client / customer name */
   client: string
-  /** Job description (product name) */
   description: string
-  /** Number of days the job has been in the queue */
   daysInQueue: number
-  /** Priority level: "CRITICAL", "Standard", or null */
   priority: string | null
-  /** Raw Syncore record for debugging */
   raw?: unknown
 }
 
 function mapJob(raw: Record<string, unknown>): GraphicsJob {
   const createdAt =
-    (raw.created_at as string) ||
-    (raw.createdAt as string) ||
-    (raw.date_created as string) ||
-    null
+    (raw.created_at as string) || (raw.createdAt as string) || (raw.date_created as string) || null
 
   let daysInQueue = 0
-  if (typeof raw.days_in_queue === 'number') {
-    daysInQueue = raw.days_in_queue
-  } else if (typeof raw.daysInQueue === 'number') {
-    daysInQueue = raw.daysInQueue
-  } else if (createdAt) {
-    const created = new Date(createdAt)
-    daysInQueue = Math.floor((Date.now() - created.getTime()) / 86_400_000)
+  if (typeof raw.days_in_queue === 'number') daysInQueue = raw.days_in_queue
+  else if (typeof raw.daysInQueue === 'number') daysInQueue = raw.daysInQueue
+  else if (createdAt) {
+    daysInQueue = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000)
   }
 
   const designerRaw =
     (raw.designer as string | Record<string, unknown> | null) ||
-    (raw.assigned_to as string | Record<string, unknown> | null) ||
-    null
+    (raw.assigned_to as string | Record<string, unknown> | null) || null
   const designer =
-    typeof designerRaw === 'string'
-      ? designerRaw
-      : typeof designerRaw === 'object' && designerRaw !== null
-      ? ((designerRaw as Record<string, unknown>).name as string) || null
-      : null
+    typeof designerRaw === 'string' ? designerRaw
+    : typeof designerRaw === 'object' && designerRaw !== null
+    ? ((designerRaw as Record<string, unknown>).name as string) || null
+    : null
 
-  const customerRaw =
-    (raw.customer as Record<string, unknown> | string | null) ||
-    (raw.client as string | null) ||
-    null
+  const customerRaw = (raw.customer as Record<string, unknown> | string | null) || (raw.client as string | null) || null
   const client =
-    typeof customerRaw === 'string'
-      ? customerRaw
-      : typeof customerRaw === 'object' && customerRaw !== null
-      ? ((customerRaw as Record<string, unknown>).name as string) || 'Unknown'
-      : 'Unknown'
+    typeof customerRaw === 'string' ? customerRaw
+    : typeof customerRaw === 'object' && customerRaw !== null
+    ? ((customerRaw as Record<string, unknown>).name as string) || 'Unknown'
+    : 'Unknown'
 
   return {
     id: String(raw.id || raw.job_id || raw.jobId || ''),
@@ -148,68 +220,22 @@ function mapJob(raw: Record<string, unknown>): GraphicsJob {
     client,
     description: String(raw.name || raw.description || raw.title || ''),
     daysInQueue,
-    priority:
-      (raw.priority as string) ||
-      (raw.rush as boolean ? 'CRITICAL' : null) ||
-      'Standard',
-    raw
+    priority: (raw.priority as string) || (raw.rush as boolean ? 'CRITICAL' : null) || 'Standard',
+    raw,
   }
 }
 
-/** Rolling date window: last 180 days to today (PT) */
-function dateRange() {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
-  const to = now.toISOString().slice(0, 10)
-  const from = new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10)
-  return { date_from: from, date_to: to }
-}
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
-  const token = await login()
-  const deptId = process.env.SYNCORE_GRAPHICS_DEPT_ID
-  const status = process.env.SYNCORE_JOB_STATUS || 'open'
-  const { date_from, date_to } = dateRange()
+  await login()
 
-  const params = new URLSearchParams({ status, date_from, date_to })
-  if (deptId) params.set('department_id', deptId)
+  // On first run, discover available endpoints so we can identify the right one
+  console.log('[syncore] --- Discovering job endpoints ---')
+  await discoverJobEndpoints()
+  console.log('[syncore] --- Discovery complete ---')
 
-  const url = `${BASE}/orders/jobs?${params.toString()}`
-  const res = await fetch(url, { headers: bearerHeaders(token) })
-
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Syncore graphics queue fetch failed: HTTP ${res.status} — ${body}`)
-  }
-
-  const data: unknown = await res.json()
-
-  let rawJobs: Record<string, unknown>[]
-  if (Array.isArray(data)) {
-    rawJobs = data as Record<string, unknown>[]
-  } else if (data && typeof data === 'object') {
-    const obj = data as Record<string, unknown>
-    rawJobs = (Array.isArray(obj.data) ? obj.data : Array.isArray(obj.jobs) ? obj.jobs : []) as Record<string, unknown>[]
-  } else {
-    rawJobs = []
-  }
-
-  return rawJobs.map(mapJob)
-}
-
-/** Returns the raw API response for debugging. */
-export async function fetchGraphicsQueueRaw(): Promise<unknown> {
-  const token = await login()
-  const deptId = process.env.SYNCORE_GRAPHICS_DEPT_ID
-  const status = process.env.SYNCORE_JOB_STATUS || 'open'
-  const { date_from, date_to } = dateRange()
-
-  const params = new URLSearchParams({ status, date_from, date_to })
-  if (deptId) params.set('department_id', deptId)
-
-  const url = `${BASE}/orders/jobs?${params.toString()}`
-  const res = await fetch(url, { headers: bearerHeaders(token) })
-  const body = await res.text()
-  let parsed: unknown
-  try { parsed = JSON.parse(body) } catch { parsed = body }
-  return { status: res.status, url, body: parsed }
+  // TODO: once the correct endpoint is identified from the discovery output above,
+  // replace this section with a direct call to that endpoint.
+  return []
 }
