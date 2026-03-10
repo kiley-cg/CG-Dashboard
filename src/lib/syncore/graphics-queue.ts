@@ -13,8 +13,17 @@
  */
 
 const BASE = 'https://api.syncore.app/v2'
+const AUTH_BASE = 'https://api.syncore.app'
 
 let cachedToken: string | null = null
+
+// Syncore auth endpoint candidates (tried in order until one succeeds)
+const LOGIN_ENDPOINTS = [
+  `${AUTH_BASE}/auth/login`,
+  `${AUTH_BASE}/v2/auth/token`,
+  `${AUTH_BASE}/v2/users/login`,
+  `${AUTH_BASE}/v2/account/login`,
+]
 
 async function login(): Promise<string> {
   if (cachedToken) return cachedToken
@@ -25,31 +34,43 @@ async function login(): Promise<string> {
     throw new Error('SYNCORE_EMAIL and SYNCORE_PASSWORD must be set')
   }
 
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  })
+  const body = JSON.stringify({ email, password })
+  const headers = { 'Content-Type': 'application/json' }
 
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Syncore login failed: HTTP ${res.status} — ${body}`)
+  let lastError = ''
+  for (const endpoint of LOGIN_ENDPOINTS) {
+    const res = await fetch(endpoint, { method: 'POST', headers, body })
+    if (res.status === 404) {
+      console.log(`[syncore] ${endpoint} → 404, trying next...`)
+      continue
+    }
+    if (!res.ok) {
+      const text = await res.text()
+      lastError = `HTTP ${res.status} at ${endpoint} — ${text}`
+      console.log(`[syncore] ${endpoint} → ${res.status}: ${text}`)
+      continue
+    }
+
+    const data = await res.json() as Record<string, unknown>
+    const token =
+      (data.token as string) ||
+      (data.access_token as string) ||
+      (data.accessToken as string) ||
+      ((data.data as Record<string, unknown>)?.token as string) ||
+      null
+
+    if (!token) {
+      lastError = `Login succeeded at ${endpoint} but no token in response. Keys: ${Object.keys(data).join(', ')}`
+      console.log(`[syncore] ${lastError}`)
+      continue
+    }
+
+    console.log(`[syncore] Logged in via ${endpoint}`)
+    cachedToken = token
+    return token
   }
 
-  const data = await res.json() as Record<string, unknown>
-  const token =
-    (data.token as string) ||
-    (data.access_token as string) ||
-    (data.accessToken as string) ||
-    ((data.data as Record<string, unknown>)?.token as string) ||
-    null
-
-  if (!token) {
-    throw new Error(`Syncore login response missing token. Keys: ${Object.keys(data).join(', ')}`)
-  }
-
-  cachedToken = token
-  return token
+  throw new Error(`Syncore login failed — all endpoints exhausted. Last error: ${lastError}`)
 }
 
 function bearerHeaders(token: string) {
