@@ -117,36 +117,43 @@ async function login(): Promise<void> {
   storeCookies(usRes)
   console.log(`[ateasi] us. → HTTP ${usRes.status} Location: ${usRes.headers.get('location') ?? '(none)'} Cookies: ${Object.keys(sessionCookies).join(', ')}`)
 
-  // Step 2: Resolve the login URL (should be www./Account/Login?ReturnUrl=...)
-  const usLocation = usRes.headers.get('location')
-  const loginUrl = usLocation
+  // Step 2: Follow the redirect chain from us./Login.asp until we reach the
+  // actual www. login form (a 200 page with a password input).
+  let loginPageUrl = usLocation
     ? resolveUrl(`${SITE}/index.asp`, usLocation)
     : `${AUTH_SITE}/Account/Login`
 
-  console.log(`[ateasi] GET ${loginUrl}`)
-  const loginRes = await fetch(loginUrl, {
-    headers: {
-      'Cookie': cookieHeader(),
-      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
-    },
-    redirect: 'manual',
-  })
-  storeCookies(loginRes)
-  let loginHtml = await loginRes.text()
-  let loginPageUrl = loginUrl
-  console.log(`[ateasi] login page → HTTP ${loginRes.status} | has-password:${/type=["']password["']/i.test(loginHtml)}`)
-
-  // If we were redirected again, follow to the actual form page
-  if (loginRes.status >= 300 && loginRes.status < 400) {
-    const next = resolveUrl(loginUrl, loginRes.headers.get('location') ?? '')
-    const loginRes2 = await fetch(next, {
+  let loginHtml = ''
+  for (let attempt = 0; attempt < 10; attempt++) {
+    console.log(`[ateasi] login form seek ${attempt + 1} → GET ${loginPageUrl}`)
+    const r = await fetch(loginPageUrl, {
       headers: { 'Cookie': cookieHeader(), 'User-Agent': 'Mozilla/5.0 (compatible; automation)' },
       redirect: 'manual',
     })
-    storeCookies(loginRes2)
-    loginHtml = await loginRes2.text()
-    loginPageUrl = next
-    console.log(`[ateasi] login page (followed) → HTTP ${loginRes2.status} | has-password:${/type=["']password["']/i.test(loginHtml)}`)
+    storeCookies(r)
+    const body = await r.text()
+    const hasPass = /type=["']password["']/i.test(body)
+    console.log(`[ateasi]   → HTTP ${r.status} | has-password:${hasPass}`)
+
+    if (r.status === 200 && hasPass) {
+      loginHtml = body
+      break
+    }
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get('location')
+      if (!loc) throw new Error('Redirect with no Location header while seeking login form')
+      loginPageUrl = resolveUrl(loginPageUrl, loc)
+      continue
+    }
+    if (r.status === 200) {
+      // Got 200 but no password field — take whatever we have and try anyway
+      loginHtml = body
+      break
+    }
+  }
+
+  if (!/type=["']password["']/i.test(loginHtml)) {
+    throw new Error(`Could not find login form with password field. Last URL: ${loginPageUrl}\nPage start: ${loginHtml.slice(0, 400)}`)
   }
 
   // Step 3: Build and submit the login form
@@ -249,26 +256,35 @@ async function authedGet(pathOrUrl: string, maxRedirects = 10): Promise<Response
 async function findGraphicServicesUrl(): Promise<string> {
   if (graphicServicesUrl) return graphicServicesUrl
 
-  // Scan us. home/index for a Graphic Services navigation link
-  const res = await authedGet('/index.asp')
-  const html = await res.text()
-  console.log(`[ateasi] GET /index.asp → HTTP ${res.status} | ${html.slice(0, 300).replace(/\s+/g, ' ')}`)
+  // Scan multiple us. pages for nav links — also look for any link containing "graphic"
+  const navPages = ['/index.asp', '/default.asp', '/home.asp', '/main.asp']
+  for (const navPath of navPages) {
+    const res = await authedGet(navPath)
+    if (res.status !== 200) continue
+    const html = await res.text()
+    const snippet = html.slice(0, 500).replace(/\s+/g, ' ')
+    console.log(`[ateasi] GET ${navPath} → HTTP ${res.status} | ${snippet}`)
 
-  const linkRe = /href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
-  let m: RegExpExecArray | null
-  const allLinks: string[] = []
-  while ((m = linkRe.exec(html)) !== null) {
-    const text = m[2].replace(/<[^>]+>/g, '').trim()
-    if (text) allLinks.push(`${text.slice(0, 50)} → ${m[1]}`)
-    if (/graphic[\s_-]?services?/i.test(text) || /graphic[\s_-]?services?/i.test(m[1])) {
-      graphicServicesUrl = resolveUrl(res.url, m[1])
-      console.log(`[ateasi] Found Graphic Services URL via link: ${graphicServicesUrl}`)
-      return graphicServicesUrl
+    // Print all links for diagnostic visibility
+    const linkRe = /href=["']([^"'#?][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
+    let m: RegExpExecArray | null
+    const allLinks: string[] = []
+    while ((m = linkRe.exec(html)) !== null) {
+      const text = m[2].replace(/<[^>]+>/g, '').trim()
+      if (text) allLinks.push(`${text.slice(0, 50)} → ${m[1]}`)
+      // Match "graphic services", "graphics", "graphic", etc.
+      if (/graphic/i.test(text) || /graphic/i.test(m[1])) {
+        graphicServicesUrl = resolveUrl(res.url, m[1])
+        console.log(`[ateasi] Found Graphic Services link: "${text}" → ${graphicServicesUrl}`)
+        return graphicServicesUrl
+      }
+    }
+    if (allLinks.length > 0) {
+      console.log(`[ateasi] All links on ${navPath} (${allLinks.length}):`, allLinks.slice(0, 50).join(' | '))
     }
   }
-  console.log(`[ateasi] All links (${allLinks.length}):`, allLinks.slice(0, 40).join(' | '))
 
-  // Fallback — try common classic-ASP paths on us.
+  // Fallback — try common classic-ASP paths on us. and print full error for diagnosis
   const fallbacks = [
     '/graphic_services.asp',
     '/graphicservices.asp',
@@ -276,12 +292,16 @@ async function findGraphicServicesUrl(): Promise<string> {
     '/graphic.asp',
     '/jobs_graphic.asp',
     '/graphic_jobs.asp',
+    '/services_graphic.asp',
+    '/JobGraphicServices.asp',
+    '/job_graphic_services.asp',
   ]
   for (const path of fallbacks) {
     const r = await authedGet(path)
     const text = await r.text()
-    console.log(`[ateasi] GET ${path} → ${r.status} | ${text.slice(0, 150).replace(/\s+/g, ' ')}`)
-    if (r.status === 200 && /graphic/i.test(text)) {
+    console.log(`[ateasi] GET ${path} → ${r.status} | ${text.slice(0, 300).replace(/\s+/g, ' ')}`)
+    // Accept if it's not just an error page
+    if (r.status === 200 && /graphic/i.test(text) && !/@ease v1 - An error occurred/i.test(text)) {
       graphicServicesUrl = `${SITE}${path}`
       console.log(`[ateasi] Found Graphic Services URL (fallback): ${graphicServicesUrl}`)
       return graphicServicesUrl
