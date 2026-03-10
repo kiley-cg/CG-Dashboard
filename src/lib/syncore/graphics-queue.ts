@@ -119,6 +119,7 @@ async function login(): Promise<void> {
 
   // Step 2: Follow the redirect chain from us./Login.asp until we reach the
   // actual www. login form (a 200 page with a password input).
+  const usLocation = usRes.headers.get('location')
   let loginPageUrl = usLocation
     ? resolveUrl(`${SITE}/index.asp`, usLocation)
     : `${AUTH_SITE}/Account/Login`
