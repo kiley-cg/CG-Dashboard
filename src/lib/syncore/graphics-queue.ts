@@ -2,27 +2,59 @@
  * Syncore Graphics Queue Fetcher
  *
  * Fetches all jobs currently in the graphics/production queue from Syncore CRM.
+ * Uses username/password login to obtain a Bearer token, then queries the jobs API.
  *
- * CONFIGURATION:
- * - SYNCORE_API_KEY: Required. Your Syncore API key.
- * - SYNCORE_GRAPHICS_DEPT_ID: Optional. The numeric department ID for the graphics
- *   department in Syncore (e.g., "3"). If not set, all active jobs are fetched.
- *
- * HOW TO FIND YOUR DEPARTMENT ID:
- * 1. Log into Syncore and navigate to Jobs > Graphics / Production board
- * 2. Note the URL — it likely has a department or filter ID in the query string
- * 3. Or call GET /orders/jobs without a filter, inspect the response `department` field,
- *    and set that ID as SYNCORE_GRAPHICS_DEPT_ID
- *
- * The /api/cron/graphics-test endpoint (GET) will dump the raw API response to help
- * you discover the correct field names and department ID.
+ * CONFIGURATION (GitHub Secrets / env vars):
+ * - SYNCORE_EMAIL:            Login email (e.g. __automation@colorgraphicswa.com)
+ * - SYNCORE_PASSWORD:         Login password
+ * - SYNCORE_GRAPHICS_DEPT_ID: Optional. Department ID to filter to graphics only.
+ * - SYNCORE_JOB_STATUS:       Optional. Job status filter (default: "open").
+ *                             Check Syncore for valid values if "open" doesn't work.
  */
 
 const BASE = 'https://api.syncore.app/v2'
 
-function headers() {
+let cachedToken: string | null = null
+
+async function login(): Promise<string> {
+  if (cachedToken) return cachedToken
+
+  const email = process.env.SYNCORE_EMAIL
+  const password = process.env.SYNCORE_PASSWORD
+  if (!email || !password) {
+    throw new Error('SYNCORE_EMAIL and SYNCORE_PASSWORD must be set')
+  }
+
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Syncore login failed: HTTP ${res.status} — ${body}`)
+  }
+
+  const data = await res.json() as Record<string, unknown>
+  const token =
+    (data.token as string) ||
+    (data.access_token as string) ||
+    (data.accessToken as string) ||
+    ((data.data as Record<string, unknown>)?.token as string) ||
+    null
+
+  if (!token) {
+    throw new Error(`Syncore login response missing token. Keys: ${Object.keys(data).join(', ')}`)
+  }
+
+  cachedToken = token
+  return token
+}
+
+function bearerHeaders(token: string) {
   return {
-    'x-api-key': process.env.SYNCORE_API_KEY!,
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json'
   }
 }
@@ -48,13 +80,7 @@ export interface GraphicsJob {
   raw?: unknown
 }
 
-/**
- * Maps a raw Syncore job API response to our GraphicsJob shape.
- * Field names are best-guesses based on the existing client.ts patterns.
- * Adjust the mapping after inspecting live API responses via /api/cron/graphics-test.
- */
 function mapJob(raw: Record<string, unknown>): GraphicsJob {
-  // Days in queue: try several possible field names
   const createdAt =
     (raw.created_at as string) ||
     (raw.createdAt as string) ||
@@ -71,7 +97,6 @@ function mapJob(raw: Record<string, unknown>): GraphicsJob {
     daysInQueue = Math.floor((Date.now() - created.getTime()) / 86_400_000)
   }
 
-  // Designer field
   const designerRaw =
     (raw.designer as string | Record<string, unknown> | null) ||
     (raw.assigned_to as string | Record<string, unknown> | null) ||
@@ -83,7 +108,6 @@ function mapJob(raw: Record<string, unknown>): GraphicsJob {
       ? ((designerRaw as Record<string, unknown>).name as string) || null
       : null
 
-  // Client field
   const customerRaw =
     (raw.customer as Record<string, unknown> | string | null) ||
     (raw.client as string | null) ||
@@ -111,27 +135,25 @@ function mapJob(raw: Record<string, unknown>): GraphicsJob {
   }
 }
 
-/**
- * Fetches all jobs from the Syncore graphics/production queue.
- *
- * Uses SYNCORE_GRAPHICS_DEPT_ID env var to filter by department if set.
- * Otherwise fetches all active/open jobs.
- *
- * Returns an array of mapped GraphicsJob objects.
- */
-export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
-  const deptId = process.env.SYNCORE_GRAPHICS_DEPT_ID
+/** Rolling date window: last 180 days to today (PT) */
+function dateRange() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }))
+  const to = now.toISOString().slice(0, 10)
+  const from = new Date(now.getTime() - 180 * 86_400_000).toISOString().slice(0, 10)
+  return { date_from: from, date_to: to }
+}
 
-  // Build query params — adjust based on live API discovery
-  const params = new URLSearchParams()
-  if (deptId) {
-    params.set('department_id', deptId)
-  }
-  // Common status filters to limit to active jobs; adjust as needed
-  params.set('status', 'active')
+export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
+  const token = await login()
+  const deptId = process.env.SYNCORE_GRAPHICS_DEPT_ID
+  const status = process.env.SYNCORE_JOB_STATUS || 'open'
+  const { date_from, date_to } = dateRange()
+
+  const params = new URLSearchParams({ status, date_from, date_to })
+  if (deptId) params.set('department_id', deptId)
 
   const url = `${BASE}/orders/jobs?${params.toString()}`
-  const res = await fetch(url, { headers: headers() })
+  const res = await fetch(url, { headers: bearerHeaders(token) })
 
   if (!res.ok) {
     const body = await res.text()
@@ -140,16 +162,12 @@ export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
 
   const data: unknown = await res.json()
 
-  // Normalize response shape (array, or { data: [...] }, or { jobs: [...] })
   let rawJobs: Record<string, unknown>[]
   if (Array.isArray(data)) {
     rawJobs = data as Record<string, unknown>[]
   } else if (data && typeof data === 'object') {
     const obj = data as Record<string, unknown>
-    rawJobs = (Array.isArray(obj.data) ? obj.data : Array.isArray(obj.jobs) ? obj.jobs : []) as Record<
-      string,
-      unknown
-    >[]
+    rawJobs = (Array.isArray(obj.data) ? obj.data : Array.isArray(obj.jobs) ? obj.jobs : []) as Record<string, unknown>[]
   } else {
     rawJobs = []
   }
@@ -157,18 +175,20 @@ export async function fetchGraphicsQueue(): Promise<GraphicsJob[]> {
   return rawJobs.map(mapJob)
 }
 
-/**
- * Returns the raw Syncore API response for debugging / endpoint discovery.
- * Used by /api/cron/graphics-test.
- */
+/** Returns the raw API response for debugging. */
 export async function fetchGraphicsQueueRaw(): Promise<unknown> {
+  const token = await login()
   const deptId = process.env.SYNCORE_GRAPHICS_DEPT_ID
-  const params = new URLSearchParams()
+  const status = process.env.SYNCORE_JOB_STATUS || 'open'
+  const { date_from, date_to } = dateRange()
+
+  const params = new URLSearchParams({ status, date_from, date_to })
   if (deptId) params.set('department_id', deptId)
-  params.set('status', 'active')
 
   const url = `${BASE}/orders/jobs?${params.toString()}`
-  const res = await fetch(url, { headers: headers() })
+  const res = await fetch(url, { headers: bearerHeaders(token) })
   const body = await res.text()
-  return { status: res.status, url, body: JSON.parse(body).slice ? JSON.parse(body).slice(0, 5) : JSON.parse(body) }
+  let parsed: unknown
+  try { parsed = JSON.parse(body) } catch { parsed = body }
+  return { status: res.status, url, body: parsed }
 }

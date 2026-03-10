@@ -28,8 +28,10 @@ jobs:
 
       - name: Run morning script
         env:
-          SYNCORE_API_KEY: ${{ secrets.SYNCORE_API_KEY }}
+          SYNCORE_EMAIL: ${{ secrets.SYNCORE_EMAIL }}
+          SYNCORE_PASSWORD: ${{ secrets.SYNCORE_PASSWORD }}
           SYNCORE_GRAPHICS_DEPT_ID: ${{ secrets.SYNCORE_GRAPHICS_DEPT_ID }}
+          SYNCORE_JOB_STATUS: ${{ secrets.SYNCORE_JOB_STATUS }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_CLIENT_EMAIL: ${{ secrets.FIREBASE_CLIENT_EMAIL }}
           FIREBASE_PRIVATE_KEY: ${{ secrets.FIREBASE_PRIVATE_KEY }}
