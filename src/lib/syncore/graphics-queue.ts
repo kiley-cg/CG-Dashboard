@@ -10,9 +10,11 @@
  * - SYNCORE_PASSWORD: Login password
  */
 
-// www. is the ASP.NET MVC app where auth works. us. has a separate session
-// mechanism that doesn't share the .ASPXAUTH cookie, so we stay on www.
-const SITE = 'https://www.ateasesystems.net'
+// us. is the classic-ASP app with the actual data. www. is the ASP.NET MVC
+// auth gateway. Login must start from us. so the ReturnUrl carries us back
+// here after www. authenticates the user.
+const SITE = 'https://us.ateasesystems.net'
+const AUTH_SITE = 'https://www.ateasesystems.net'
 
 // ── Cookie jar ────────────────────────────────────────────────────────────────
 
@@ -105,34 +107,49 @@ async function login(): Promise<void> {
   const password = process.env.SYNCORE_PASSWORD
   if (!email || !password) throw new Error('SYNCORE_EMAIL and SYNCORE_PASSWORD must be set')
 
-  // GET home — will redirect to login if not authenticated
+  // Step 1: Hit us. first (redirect: manual) to capture the ReturnUrl that
+  // www. will honour after successful login, sending us back to us.ateasesystems.net.
   console.log(`[ateasi] GET ${SITE}/index.asp`)
-  const homeRes = await fetch(`${SITE}/index.asp`, {
+  const usRes = await fetch(`${SITE}/index.asp`, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; automation)' },
+    redirect: 'manual',
   })
-  storeCookies(homeRes)
-  const homeHtml = await homeRes.text()
-  const homeUrl = homeRes.url
-  console.log(`[ateasi] → HTTP ${homeRes.status} final URL: ${homeUrl}`)
+  storeCookies(usRes)
+  console.log(`[ateasi] us. → HTTP ${usRes.status} Location: ${usRes.headers.get('location') ?? '(none)'} Cookies: ${Object.keys(sessionCookies).join(', ')}`)
 
-  // Is this a login page already, or do we need a separate login URL?
-  let loginHtml = homeHtml
-  let loginUrl = homeUrl
+  // Step 2: Resolve the login URL (should be www./Account/Login?ReturnUrl=...)
+  const usLocation = usRes.headers.get('location')
+  const loginUrl = usLocation
+    ? resolveUrl(`${SITE}/index.asp`, usLocation)
+    : `${AUTH_SITE}/Account/Login`
 
-  if (!homeHtml.match(/type=["']password["']/i)) {
-    const altRes = await fetch(`${SITE}/Account/Login`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; automation)',
-        'Cookie': cookieHeader(),
-      },
+  console.log(`[ateasi] GET ${loginUrl}`)
+  const loginRes = await fetch(loginUrl, {
+    headers: {
+      'Cookie': cookieHeader(),
+      'User-Agent': 'Mozilla/5.0 (compatible; automation)',
+    },
+    redirect: 'manual',
+  })
+  storeCookies(loginRes)
+  let loginHtml = await loginRes.text()
+  let loginPageUrl = loginUrl
+  console.log(`[ateasi] login page → HTTP ${loginRes.status} | has-password:${/type=["']password["']/i.test(loginHtml)}`)
+
+  // If we were redirected again, follow to the actual form page
+  if (loginRes.status >= 300 && loginRes.status < 400) {
+    const next = resolveUrl(loginUrl, loginRes.headers.get('location') ?? '')
+    const loginRes2 = await fetch(next, {
+      headers: { 'Cookie': cookieHeader(), 'User-Agent': 'Mozilla/5.0 (compatible; automation)' },
+      redirect: 'manual',
     })
-    storeCookies(altRes)
-    loginHtml = await altRes.text()
-    loginUrl = altRes.url
-    console.log(`[ateasi] GET /Account/Login → HTTP ${altRes.status} final URL: ${loginUrl}`)
+    storeCookies(loginRes2)
+    loginHtml = await loginRes2.text()
+    loginPageUrl = next
+    console.log(`[ateasi] login page (followed) → HTTP ${loginRes2.status} | has-password:${/type=["']password["']/i.test(loginHtml)}`)
   }
 
-  // Build form payload — preserve all hidden/default fields
+  // Step 3: Build and submit the login form
   const fields = extractFormDefaults(loginHtml)
   const csrfToken = extractAntiForgery(loginHtml)
   if (csrfToken) fields['__RequestVerificationToken'] = csrfToken
@@ -142,9 +159,10 @@ async function login(): Promise<void> {
   fields[usernameField] = email
   fields[passwordField] = password
 
-  // Form action
+  console.log(`[ateasi] form fields (no password): ${Object.keys(fields).filter(k => k !== passwordField).map(k => `${k}=${fields[k].slice(0,40)}`).join(', ')}`)
+
   const actionM = loginHtml.match(/<form[^>]+action=["']([^"']+)["']/i)
-  const actionUrl = actionM ? resolveUrl(loginUrl, actionM[1]) : loginUrl
+  const actionUrl = actionM ? resolveUrl(loginPageUrl, actionM[1]) : loginPageUrl
 
   console.log(`[ateasi] POST ${actionUrl}`)
   const postRes = await fetch(actionUrl, {
@@ -153,38 +171,44 @@ async function login(): Promise<void> {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': cookieHeader(),
       'User-Agent': 'Mozilla/5.0 (compatible; automation)',
-      'Referer': loginUrl,
+      'Referer': loginPageUrl,
     },
     body: new URLSearchParams(fields).toString(),
     redirect: 'manual',
   })
   storeCookies(postRes)
-  console.log(`[ateasi] Login → HTTP ${postRes.status} Location: ${postRes.headers.get('location') ?? '(none)'} Cookies: ${Object.keys(sessionCookies).join(', ')}`)
+  console.log(`[ateasi] Login POST → HTTP ${postRes.status} Location: ${postRes.headers.get('location') ?? '(none)'} Cookies: ${Object.keys(sessionCookies).join(', ')}`)
 
   if (postRes.status >= 400) {
     const body = await postRes.text()
     throw new Error(`Login failed: HTTP ${postRes.status}\n${body.slice(0, 500)}`)
   }
 
-  // Follow the post-login redirect manually (cookie must be re-sent on each hop)
+  if (postRes.status === 200) {
+    // A 200 on the POST means login was rejected (form re-displayed with error)
+    const body = await postRes.text()
+    const errM = body.match(/class=["'][^"']*validation[^"']*["'][^>]*>([\s\S]{0,200})</)
+    throw new Error(`Login rejected (credentials wrong?): ${errM ? errM[1].replace(/<[^>]+>/g, '').trim() : body.slice(0, 300)}`)
+  }
+
+  // Step 4: Follow the post-login redirect chain; www. should eventually
+  // redirect back to us.ateasesystems.net, establishing a session there.
   let location = postRes.headers.get('location')
   let currentUrl = actionUrl
   let hops = 0
-  while (location && hops++ < 10) {
+  while (location && hops++ < 15) {
     currentUrl = resolveUrl(currentUrl, location)
-    console.log(`[ateasi] Following post-login redirect → ${currentUrl}`)
-    const redirectRes = await fetch(currentUrl, {
+    console.log(`[ateasi] redirect hop ${hops} → ${currentUrl}`)
+    const r = await fetch(currentUrl, {
       headers: {
         'Cookie': cookieHeader(),
         'User-Agent': 'Mozilla/5.0 (compatible; automation)',
       },
       redirect: 'manual',
     })
-    storeCookies(redirectRes)
-    console.log(`[ateasi] Redirect → HTTP ${redirectRes.status} ${redirectRes.headers.get('location') ?? ''} | Cookies: ${Object.keys(sessionCookies).join(', ')}`)
-    location = redirectRes.status >= 300 && redirectRes.status < 400
-      ? redirectRes.headers.get('location')
-      : null
+    storeCookies(r)
+    location = r.status >= 300 && r.status < 400 ? r.headers.get('location') : null
+    console.log(`[ateasi]   → ${r.status} ${location ?? '(done)'} | Cookies: ${Object.keys(sessionCookies).join(', ')}`)
   }
 
   loggedIn = true
@@ -225,41 +249,39 @@ async function authedGet(pathOrUrl: string, maxRedirects = 10): Promise<Response
 async function findGraphicServicesUrl(): Promise<string> {
   if (graphicServicesUrl) return graphicServicesUrl
 
-  // Scan the Jobs page on www. for a Graphic Services link
-  const res = await authedGet('/Jobs')
+  // Scan us. home/index for a Graphic Services navigation link
+  const res = await authedGet('/index.asp')
   const html = await res.text()
-  console.log(`[ateasi] GET /Jobs → HTTP ${res.status} final: ${res.url}`)
+  console.log(`[ateasi] GET /index.asp → HTTP ${res.status} | ${html.slice(0, 300).replace(/\s+/g, ' ')}`)
 
   const linkRe = /href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
   let m: RegExpExecArray | null
   const allLinks: string[] = []
   while ((m = linkRe.exec(html)) !== null) {
     const text = m[2].replace(/<[^>]+>/g, '').trim()
-    if (text) allLinks.push(`${text.slice(0, 40)} → ${m[1]}`)
+    if (text) allLinks.push(`${text.slice(0, 50)} → ${m[1]}`)
     if (/graphic[\s_-]?services?/i.test(text) || /graphic[\s_-]?services?/i.test(m[1])) {
       graphicServicesUrl = resolveUrl(res.url, m[1])
-      console.log(`[ateasi] Found Graphic Services URL: ${graphicServicesUrl}`)
+      console.log(`[ateasi] Found Graphic Services URL via link: ${graphicServicesUrl}`)
       return graphicServicesUrl
     }
   }
-  console.log(`[ateasi] All links on /Jobs (${allLinks.length}):`, allLinks.slice(0, 30).join(' | '))
+  console.log(`[ateasi] All links (${allLinks.length}):`, allLinks.slice(0, 40).join(' | '))
 
-  // Fallback — try likely www. ASP.NET MVC paths
+  // Fallback — try common classic-ASP paths on us.
   const fallbacks = [
-    '/Jobs/GraphicServices',
-    '/Jobs/Graphic',
-    '/Jobs/GraphicsServices',
-    '/GraphicServices',
-    '/GraphicsServices',
-    '/Graphics/Services',
-    '/Jobs/Graphics',
+    '/graphic_services.asp',
+    '/graphicservices.asp',
+    '/graphics_services.asp',
+    '/graphic.asp',
+    '/jobs_graphic.asp',
+    '/graphic_jobs.asp',
   ]
   for (const path of fallbacks) {
     const r = await authedGet(path)
     const text = await r.text()
-    const snippet = text.slice(0, 200).replace(/\s+/g, ' ')
-    console.log(`[ateasi] GET ${path} → ${r.status} | hasLogin:${text.includes('Account/Login')} | ${snippet}`)
-    if (r.status === 200 && /graphic/i.test(text) && !text.includes('Account/Login')) {
+    console.log(`[ateasi] GET ${path} → ${r.status} | ${text.slice(0, 150).replace(/\s+/g, ' ')}`)
+    if (r.status === 200 && /graphic/i.test(text)) {
       graphicServicesUrl = `${SITE}${path}`
       console.log(`[ateasi] Found Graphic Services URL (fallback): ${graphicServicesUrl}`)
       return graphicServicesUrl
