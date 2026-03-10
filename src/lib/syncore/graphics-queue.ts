@@ -85,7 +85,9 @@ function extractFormDefaults(html: string): Record<string, string> {
 
 function resolveUrl(base: string, href: string): string {
   if (href.startsWith('http')) return href
-  if (href.startsWith('/')) return `${SITE}${href}`
+  if (href.startsWith('/')) {
+    try { return `${new URL(base).origin}${href}` } catch { return `${SITE}${href}` }
+  }
   return `${base.replace(/\/[^/]*$/, '/')}${href}`
 }
 
