@@ -1,6 +1,6 @@
 /**
- * Overlay panel logic.
- * Runs inside the overlay.html iframe injected by content.js.
+ * Side panel logic.
+ * Runs as a privileged extension page — direct access to chrome.storage and fetch.
  */
 
 'use strict';
@@ -10,72 +10,75 @@ let proposal = null;
 let dashboardUrl = 'http://localhost:3000';
 let apiKey = '';
 
-// --- State management ---
+const ALL_STATES = ['waiting', 'idle', 'thinking', 'proposal', 'applying', 'done', 'error'];
 
-const states = ['idle', 'thinking', 'proposal', 'applying', 'done', 'error'];
+// --- State display ---
 
 function showState(name) {
-  states.forEach(s => {
+  ALL_STATES.forEach(s => {
     document.getElementById('state-' + s).classList.toggle('hidden', s !== name);
   });
 }
 
-// --- Init: receive order number from content script ---
+// --- Init: load settings + current order from session storage ---
 
-window.addEventListener('message', async (e) => {
-  if (e.data?.type === 'INIT') {
-    orderNumber = e.data.orderNumber;
-    document.getElementById('order-display').textContent = orderNumber;
-    document.getElementById('order-badge').textContent = 'SO: ' + orderNumber;
+async function init() {
+  const [session, local] = await Promise.all([
+    chrome.storage.session.get(['orderNumber']),
+    chrome.storage.local.get(['dashboardUrl', 'apiKey']),
+  ]);
 
-    const stored = await chromeStorageGet(['dashboardUrl', 'apiKey']);
-    dashboardUrl = stored.dashboardUrl || 'http://localhost:3000';
-    apiKey = stored.apiKey || '';
+  dashboardUrl = local.dashboardUrl || 'http://localhost:3000';
+  apiKey = local.apiKey || '';
 
-    const runBtn = document.getElementById('btn-run');
-    runBtn.disabled = false;
+  if (session.orderNumber) {
+    activateOrder(session.orderNumber);
+  } else {
+    showState('waiting');
+  }
+}
 
-    if (!apiKey) {
-      document.getElementById('config-warning').classList.remove('hidden');
+function activateOrder(num) {
+  orderNumber = num;
+  proposal = null;
+
+  document.getElementById('order-display').textContent = num;
+  document.getElementById('order-badge').textContent = 'SO: ' + num;
+  document.getElementById('order-badge').classList.remove('hidden');
+  document.getElementById('btn-run').disabled = false;
+
+  if (!apiKey) {
+    document.getElementById('config-warning').classList.remove('hidden');
+  } else {
+    document.getElementById('config-warning').classList.add('hidden');
+  }
+
+  showState('idle');
+}
+
+// React when content script detects a new order (SPA navigation)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes.orderNumber) {
+    const newOrder = changes.orderNumber.newValue;
+    if (newOrder && newOrder !== orderNumber) {
+      activateOrder(newOrder);
     }
   }
+  if (area === 'local' && (changes.dashboardUrl || changes.apiKey)) {
+    dashboardUrl = changes.dashboardUrl?.newValue || dashboardUrl;
+    apiKey = changes.apiKey?.newValue || apiKey;
+  }
 });
-
-// --- Chrome storage helper (works inside extension pages) ---
-
-function chromeStorageGet(keys) {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(keys, resolve);
-    } else {
-      resolve({});
-    }
-  });
-}
 
 // --- Header buttons ---
 
-document.getElementById('btn-close').addEventListener('click', () => {
-  window.parent.postMessage({ type: 'CLOSE' }, '*');
+document.getElementById('btn-settings').addEventListener('click', () => {
+  chrome.runtime.openOptionsPage();
 });
-
-document.getElementById('btn-minimize').addEventListener('click', () => {
-  window.parent.postMessage({ type: 'MINIMIZE' }, '*');
-});
-
-// --- Drag handle ---
-
-document.getElementById('drag-handle').addEventListener('mousedown', (e) => {
-  window.parent.postMessage({ type: 'DRAG_START', clientX: e.clientX, clientY: e.clientY }, '*');
-});
-
-// --- Settings link ---
 
 document.getElementById('open-options').addEventListener('click', (e) => {
   e.preventDefault();
-  if (typeof chrome !== 'undefined' && chrome.runtime) {
-    chrome.runtime.openOptionsPage();
-  }
+  chrome.runtime.openOptionsPage();
 });
 
 // --- Run Pricing ---
@@ -94,7 +97,7 @@ async function runPropose() {
       if (event.type === 'reasoning') {
         appendLog(log, event.text, 'reasoning');
       } else if (event.type === 'tool_call') {
-        appendLog(log, `⚙ ${event.name}`, 'tool');
+        appendLog(log, '⚙ ' + event.name, 'tool');
       } else if (event.type === 'proposal') {
         proposal = event.lines;
       } else if (event.type === 'complete') {
@@ -130,7 +133,7 @@ async function runApply() {
       if (event.type === 'reasoning') {
         appendLog(log, event.text, 'reasoning');
       } else if (event.type === 'tool_call') {
-        appendLog(log, `✎ ${event.name}`, 'tool');
+        appendLog(log, '✎ ' + event.name, 'tool');
       } else if (event.type === 'tool_result') {
         const ok = event.result?.success !== false;
         appendLog(log, ok ? '✓ Price written' : '✗ ' + (event.result?.error || 'failed'), ok ? 'success' : 'error-line');
@@ -145,21 +148,17 @@ async function runApply() {
   }
 }
 
-// --- Reject ---
+// --- Reject / Reset / Retry ---
 
 document.getElementById('btn-reject').addEventListener('click', () => {
   proposal = null;
   showState('idle');
 });
 
-// --- Reset ---
-
 document.getElementById('btn-reset').addEventListener('click', () => {
   proposal = null;
   showState('idle');
 });
-
-// --- Retry ---
 
 document.getElementById('btn-retry').addEventListener('click', () => runPropose());
 
@@ -167,7 +166,7 @@ document.getElementById('btn-retry').addEventListener('click', () => runPropose(
 
 document.getElementById('btn-open-full').addEventListener('click', () => {
   const url = dashboardUrl + '/pricing' + (orderNumber ? '?order=' + encodeURIComponent(orderNumber) : '');
-  window.open(url, '_blank');
+  chrome.tabs.create({ url });
 });
 
 // --- SSE streaming helper ---
@@ -206,17 +205,13 @@ async function streamAgent(mode, approvedProposal, onEvent) {
     buffer += decoder.decode(value, { stream: true });
 
     const lines = buffer.split('\n');
-    buffer = lines.pop(); // keep incomplete last line
+    buffer = lines.pop();
 
     for (const line of lines) {
       if (!line.startsWith('data: ')) continue;
       const json = line.slice(6).trim();
       if (!json) continue;
-      try {
-        onEvent(JSON.parse(json));
-      } catch {
-        // malformed event, skip
-      }
+      try { onEvent(JSON.parse(json)); } catch { /* skip malformed */ }
     }
   }
 }
@@ -231,9 +226,7 @@ function renderProposal(lines) {
     if (line.skip) {
       const tr = document.createElement('tr');
       tr.className = 'skipped';
-      tr.innerHTML = `
-        <td colspan="4"><span class="skip-reason">⚠ ${escHtml(line.description || line.sku || 'Unknown')} — skipped: ${escHtml(line.skipReason || 'unknown reason')}</span></td>
-      `;
+      tr.innerHTML = `<td colspan="4"><span class="skip-reason">⚠ ${escHtml(line.description || line.sku || 'Unknown')} — skipped: ${escHtml(line.skipReason || 'unknown reason')}</span></td>`;
       tbody.appendChild(tr);
       continue;
     }
@@ -283,3 +276,6 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// --- Start ---
+init();

@@ -1,18 +1,23 @@
 {
   "manifest_version": 3,
   "name": "CG Pricing Agent",
-  "version": "1.0",
-  "description": "AI pricing assistant overlay for Syncore sales orders",
-  "permissions": ["storage", "activeTab", "tabs"],
+  "version": "2.0",
+  "description": "AI pricing assistant side panel for Syncore sales orders",
+  "permissions": ["storage", "activeTab", "tabs", "sidePanel"],
   "host_permissions": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
       "js": ["content.js"],
-      "css": ["styles.css"],
       "run_at": "document_idle"
     }
   ],
+  "side_panel": {
+    "default_path": "side_panel.html"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "CG Pricing Agent"

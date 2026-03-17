@@ -1,13 +1,10 @@
 /**
  * Content script — injected into Syncore sales order pages.
- * Detects the order number and injects the floating overlay iframe.
+ * Detects the order number and notifies the background worker to open the side panel.
  */
 
 (function () {
   'use strict';
-
-  // Avoid double-injection
-  if (document.getElementById('cg-pricing-overlay-container')) return;
 
   // --- Order ID detection ---
 
@@ -33,11 +30,7 @@
     }
 
     // DOM fallback: look for order number in page headings or title
-    const selectors = [
-      '[data-order-id]',
-      '[data-so-id]',
-      '[data-job-id]',
-    ];
+    const selectors = ['[data-order-id]', '[data-so-id]', '[data-job-id]'];
     for (const sel of selectors) {
       const el = document.querySelector(sel);
       if (el) {
@@ -54,100 +47,26 @@
     return null;
   }
 
-  // --- Overlay injection ---
+  // --- Notify background worker ---
 
-  function injectOverlay(orderNumber) {
-    const extUrl = chrome.runtime.getURL('overlay.html');
-
-    const container = document.createElement('div');
-    container.id = 'cg-pricing-overlay-container';
-    container.style.cssText = [
-      'position: fixed',
-      'bottom: 24px',
-      'right: 24px',
-      'width: 580px',
-      'height: 480px',
-      'z-index: 2147483647',
-      'box-shadow: 0 8px 32px rgba(0,0,0,0.28)',
-      'border-radius: 10px',
-      'overflow: hidden',
-      'resize: both',
-    ].join(';');
-
-    const iframe = document.createElement('iframe');
-    iframe.src = extUrl;
-    iframe.id = 'cg-pricing-overlay-frame';
-    iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
-    iframe.setAttribute('allowtransparency', 'true');
-
-    container.appendChild(iframe);
-    document.body.appendChild(container);
-
-    // Send order number once iframe is ready
-    iframe.addEventListener('load', () => {
-      iframe.contentWindow.postMessage({ type: 'INIT', orderNumber }, '*');
-    });
-
-    // Listen for close/minimize messages from overlay
-    window.addEventListener('message', (e) => {
-      if (e.source !== iframe.contentWindow) return;
-      if (e.data?.type === 'CLOSE') container.remove();
-      if (e.data?.type === 'MINIMIZE') {
-        container.style.height = container.style.height === '40px' ? '480px' : '40px';
-      }
-    });
-
-    makeDraggable(container);
-  }
-
-  // --- Drag support ---
-
-  function makeDraggable(el) {
-    let startX, startY, startLeft, startBottom;
-    let dragging = false;
-
-    // Dragging is handled via messages from the overlay's drag handle
-    window.addEventListener('message', (e) => {
-      if (e.data?.type === 'DRAG_START') {
-        dragging = true;
-        startX = e.data.clientX;
-        startY = e.data.clientY;
-        const rect = el.getBoundingClientRect();
-        startLeft = rect.left;
-        startBottom = window.innerHeight - rect.bottom;
-        el.style.right = 'auto';
-        el.style.left = startLeft + 'px';
-        el.style.bottom = startBottom + 'px';
-      }
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      el.style.left = Math.max(0, startLeft + dx) + 'px';
-      el.style.bottom = Math.max(0, startBottom - dy) + 'px';
-    });
-
-    document.addEventListener('mouseup', () => { dragging = false; });
+  function notifyOrderDetected(orderNumber) {
+    chrome.runtime.sendMessage({ type: 'ORDER_DETECTED', orderNumber });
   }
 
   // --- Init ---
 
   const orderNumber = detectOrderNumber();
   if (orderNumber) {
-    injectOverlay(orderNumber);
+    notifyOrderDetected(orderNumber);
   }
 
-  // Also watch for SPA navigation (URL changes without page reload)
+  // Watch for SPA navigation (URL changes without page reload)
   let lastUrl = location.href;
   new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      const existing = document.getElementById('cg-pricing-overlay-container');
-      if (existing) existing.remove();
       const newOrder = detectOrderNumber();
-      if (newOrder) injectOverlay(newOrder);
+      if (newOrder) notifyOrderDetected(newOrder);
     }
   }).observe(document.body, { subtree: true, childList: true });
 
