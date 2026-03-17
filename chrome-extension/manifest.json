@@ -3,7 +3,7 @@
   "name": "CG Pricing Agent",
   "version": "1.0",
   "description": "AI pricing assistant overlay for Syncore sales orders",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
   "content_scripts": [
     {
