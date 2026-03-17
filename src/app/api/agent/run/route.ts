@@ -1,3 +1,6 @@
+// Required for SOAP (node-soap uses Node.js-only APIs incompatible with Edge runtime)
+export const runtime = 'nodejs'
+
 import { auth } from '@/lib/auth'
 import { runAgent } from '@/lib/agent/runtime'
 import { pricingTask } from '@/lib/agent/tasks/pricing'
