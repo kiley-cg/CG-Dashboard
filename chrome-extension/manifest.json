@@ -6,7 +6,7 @@
   "permissions": ["storage", "activeTab"],
   "content_scripts": [
     {
-      "matches": ["*://app.syncore.app/*", "*://*.syncore.app/*"],
+      "matches": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"

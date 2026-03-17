@@ -14,8 +14,12 @@
   function detectOrderNumber() {
     const url = window.location.href;
 
+    // Pattern: /SalesOrder/Details/12345 (ateasesystems.net)
+    let m = url.match(/\/SalesOrder\/Details\/([A-Za-z0-9\-]+)/);
+    if (m) return m[1];
+
     // Pattern: /orders/sales-orders/12345
-    let m = url.match(/\/orders\/sales-orders\/([A-Za-z0-9\-]+)/);
+    m = url.match(/\/orders\/sales-orders\/([A-Za-z0-9\-]+)/);
     if (m) return m[1];
 
     // Pattern: /jobs/12345
