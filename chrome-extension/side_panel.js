@@ -7,7 +7,7 @@
 
 let orderNumber = null;
 let proposal = null;
-let dashboardUrl = 'http://localhost:3000';
+let dashboardUrl = 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
 let apiKey = '';
 
 const ALL_STATES = ['waiting', 'idle', 'thinking', 'proposal', 'applying', 'done', 'error'];
