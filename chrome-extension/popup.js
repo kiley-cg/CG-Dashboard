@@ -5,9 +5,11 @@ document.getElementById('btn-settings').addEventListener('click', () => {
 });
 
 // Try to detect order number from the active tab's URL
-chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+const info = document.getElementById('order-info');
+info.textContent = 'JS running...';
+
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   const url = tabs[0]?.url || '';
-  const info = document.getElementById('order-info');
 
   // DEBUG: show raw URL
   info.textContent = 'URL: ' + (url || '(empty)');
