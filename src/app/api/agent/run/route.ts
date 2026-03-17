@@ -10,9 +10,20 @@ const tasks: Record<string, AgentTask> = {
   // Future tasks registered here
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-extension-api-key',
+}
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS })
+}
+
 export async function POST(req: Request) {
+  const apiKey = req.headers.get('x-extension-api-key')
   const session = await auth()
-  if (!session?.user) {
+  if (!session?.user && apiKey !== process.env.EXTENSION_API_KEY) {
     return new Response('Unauthorized', { status: 401 })
   }
 
@@ -135,6 +146,7 @@ Please call set_line_price for each line in the proposal that does not have skip
 
   return new Response(stream, {
     headers: {
+      ...CORS_HEADERS,
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
