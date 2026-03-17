@@ -4,7 +4,7 @@ let clientCache: soap.Client | null = null
 
 async function getClient(): Promise<soap.Client> {
   if (clientCache) return clientCache
-  clientCache = await soap.createClientAsync(process.env.SANMAR_WSDL_URL!)
+  clientCache = await soap.createClientAsync(process.env.SANMAR_PRICING_WSDL!)
   return clientCache
 }
 
