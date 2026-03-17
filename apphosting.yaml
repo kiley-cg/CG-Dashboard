@@ -25,7 +25,7 @@ env:
   # Set this to your App Hosting URL after first deploy, or your custom domain.
   # Format: https://<BACKEND_ID>--<PROJECT_ID>.us-central1.hosted.app
   - variable: NEXTAUTH_URL
-    value: https://YOUR_APP_HOSTING_URL_HERE
+    value: https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app
     availability:
       - BUILD
       - RUNTIME
