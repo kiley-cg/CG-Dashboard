@@ -1,0 +1,90 @@
+# Firebase App Hosting configuration
+# https://firebase.google.com/docs/app-hosting/configure
+#
+# HOW TO DEPLOY:
+# 1. firebase login
+# 2. firebase init apphosting   (select your project, create a backend named e.g. "pricing-agent")
+# 3. Add all secrets to Google Cloud Secret Manager (see below)
+# 4. git push — Firebase auto-deploys on push to your connected branch
+#
+# SECRETS: For each `secret:` entry below, create the secret in Secret Manager and
+# grant your App Hosting service account the "Secret Manager Secret Accessor" role.
+# Quickest way: Firebase Console → App Hosting → your backend → Environment Variables
+
+runConfig:
+  cpu: 1
+  memoryMiB: 1024
+  # Each request runs the agent loop which can stream for ~60–120s
+  concurrency: 5
+  maxInstances: 4
+  minInstances: 0
+
+env:
+  # ── Non-secret config (safe to commit) ─────────────────────────────────────
+
+  # Set this to your App Hosting URL after first deploy, or your custom domain.
+  # Format: https://<BACKEND_ID>--<PROJECT_ID>.us-central1.hosted.app
+  - variable: NEXTAUTH_URL
+    value: https://YOUR_APP_HOSTING_URL_HERE
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: ALLOWED_DOMAIN
+    value: colorgraphicswa.com
+    availability:
+      - RUNTIME
+
+  - variable: SS_API_BASE_URL
+    value: https://api.ssactivewear.com/v2
+    availability:
+      - RUNTIME
+
+  - variable: SANMAR_PRICING_WSDL
+    value: https://ws.sanmar.com:8080/SanMarWebService/SanMarPricingServicePort?wsdl
+    availability:
+      - RUNTIME
+
+  # ── Secrets (stored in Google Cloud Secret Manager) ────────────────────────
+  # Secret Manager name → env var name mapping.
+  # Create each secret with: gcloud secrets create <name> --data-file=-
+
+  - variable: ANTHROPIC_API_KEY
+    secret: anthropic-api-key
+
+  - variable: SYNCORE_API_KEY
+    secret: syncore-api-key
+
+  - variable: FIREBASE_PROJECT_ID
+    secret: firebase-project-id
+
+  - variable: FIREBASE_CLIENT_EMAIL
+    secret: firebase-client-email
+
+  # Paste the full private key (with real newlines) when creating this secret.
+  # The app already calls .replace(/\\n/g, '\n') as a fallback.
+  - variable: FIREBASE_PRIVATE_KEY
+    secret: firebase-private-key
+
+  - variable: SANMAR_API_USER
+    secret: sanmar-api-user
+
+  - variable: SANMAR_API_PASSWORD
+    secret: sanmar-api-password
+
+  - variable: SS_API_KEY
+    secret: ss-api-key
+
+  # Random 32-char string: openssl rand -base64 32
+  - variable: AUTH_SECRET
+    secret: auth-secret
+
+  - variable: GOOGLE_CLIENT_ID
+    secret: google-client-id
+
+  - variable: GOOGLE_CLIENT_SECRET
+    secret: google-client-secret
+
+  # Shared secret between this server and the Chrome extension
+  - variable: EXTENSION_API_KEY
+    secret: extension-api-key
