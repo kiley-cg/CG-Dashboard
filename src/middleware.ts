@@ -1,7 +1,8 @@
 export { auth as middleware } from '@/lib/auth'
 
 export const config = {
-  // Exclude /api/agent/* — those routes handle their own auth and need
-  // CORS preflight (OPTIONS) to pass through without being intercepted.
-  matcher: ['/((?!api/auth|api/agent|_next/static|_next/image|favicon.ico|login).*)']
+  // Explicitly protect only page routes — Next.js matchers do NOT support
+  // negative lookaheads, so use a positive allowlist instead.
+  // API routes handle their own auth (session check or API key).
+  matcher: ['/', '/pricing/:path*']
 }
