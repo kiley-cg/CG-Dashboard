@@ -13,5 +13,4 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!tabId) return;
 
   chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
-  chrome.sidePanel.open({ tabId });
 });
