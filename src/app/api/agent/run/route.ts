@@ -95,6 +95,12 @@ Please call set_line_price for each line in the proposal that does not have skip
         controller.enqueue(encoder.encode(data))
       }
 
+      // Send SSE keepalive comments every 15s to prevent proxy/CDN timeouts
+      // during long tool calls (SOAP lookups, Anthropic API waits, etc.)
+      const keepalive = setInterval(() => {
+        try { controller.enqueue(encoder.encode(': keepalive\n\n')) } catch { /* stream closed */ }
+      }, 15_000)
+
       let capturedProposal: PricingProposalLine[] | null = null
       let capturedCustomer: string | null = input.customerName || null
 
@@ -142,6 +148,7 @@ Please call set_line_price for each line in the proposal that does not have skip
       } catch (err) {
         send({ type: 'error', message: err instanceof Error ? err.message : String(err) })
       } finally {
+        clearInterval(keepalive)
         controller.close()
       }
     }

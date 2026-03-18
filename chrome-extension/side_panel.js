@@ -220,7 +220,9 @@ async function streamAgent(mode, approvedProposal, onEvent) {
       if (!line.startsWith('data: ')) continue;
       const json = line.slice(6).trim();
       if (!json) continue;
-      try { onEvent(JSON.parse(json)); } catch { /* skip malformed */ }
+      let parsed;
+      try { parsed = JSON.parse(json); } catch { continue; } // skip malformed JSON only
+      onEvent(parsed); // let callback errors propagate so error events surface
     }
   }
 }
