@@ -28,7 +28,7 @@ async function init() {
     chrome.storage.local.get(['dashboardUrl', 'apiKey']),
   ]);
 
-  dashboardUrl = local.dashboardUrl || 'http://localhost:3000';
+  dashboardUrl = local.dashboardUrl || 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
   apiKey = local.apiKey || '';
 
   if (session.orderNumber) {

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const apiKey = req.headers.get('x-extension-api-key')
   const session = await auth()
   if (!session?.user && apiKey !== process.env.EXTENSION_API_KEY) {
-    return new Response('Unauthorized', { status: 401 })
+    return new Response('Unauthorized', { status: 401, headers: CORS_HEADERS })
   }
 
   const body = await req.json()
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
 
   const taskConfig = tasks[taskName]
   if (!taskConfig) {
-    return new Response(`Unknown task: ${taskName}`, { status: 400 })
+    return new Response(`Unknown task: ${taskName}`, { status: 400, headers: CORS_HEADERS })
   }
 
   // AUTO-CONTEXT: Load relevant shared memories before the agent runs.
@@ -83,7 +83,7 @@ ${JSON.stringify(input.proposal, null, 2)}
 
 Please call set_line_price for each line in the proposal that does not have skip=true. Use the sales_order_id and lineId from the proposal.`
   } else {
-    return new Response('Invalid mode', { status: 400 })
+    return new Response('Invalid mode', { status: 400, headers: CORS_HEADERS })
   }
 
   const encoder = new TextEncoder()
