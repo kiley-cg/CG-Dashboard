@@ -92,6 +92,15 @@ async function runPropose() {
   log.innerHTML = '';
   proposal = null;
 
+  if (!apiKey) {
+    showError('API key not set. Open Settings to configure your Extension API Key.');
+    return;
+  }
+  if (!dashboardUrl || dashboardUrl === 'http://localhost:3000') {
+    showError('Dashboard URL not configured. Open Settings and enter your hosted dashboard URL.');
+    return;
+  }
+
   try {
     await streamAgent('propose', null, (event) => {
       if (event.type === 'reasoning') {
@@ -191,7 +200,7 @@ async function streamAgent(mode, approvedProposal, onEvent) {
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    const text = await response.text().catch(() => '');
     throw new Error(`API error ${response.status}: ${text}`);
   }
 

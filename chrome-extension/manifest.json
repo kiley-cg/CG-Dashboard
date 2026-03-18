@@ -4,7 +4,14 @@
   "version": "2.1",
   "description": "AI pricing assistant side panel for Syncore sales orders",
   "permissions": ["storage", "activeTab", "tabs", "sidePanel"],
-  "host_permissions": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
+  "host_permissions": [
+    "*://app.syncore.app/*",
+    "*://*.syncore.app/*",
+    "*://*.ateasesystems.net/*",
+    "http://localhost:*/*",
+    "https://*.hosted.app/*",
+    "https://*.run.app/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
