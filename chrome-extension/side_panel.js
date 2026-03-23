@@ -9,6 +9,14 @@ let orderNumber = null;
 let proposal = null;
 let dashboardUrl = 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
 let apiKey = '';
+let selectedDecoType = '';
+let selectedDecoGrid = '';
+
+const DECO_GRIDS = {
+  screenPrint: ['Darks', 'Lights', 'Specialty'],
+  embroidery: ['Standard'],
+  patch: ['Hats', 'Flats'],
+};
 
 const ALL_STATES = ['waiting', 'idle', 'thinking', 'proposal', 'applying', 'done', 'error'];
 
@@ -68,6 +76,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
     dashboardUrl = changes.dashboardUrl?.newValue || dashboardUrl;
     apiKey = changes.apiKey?.newValue || apiKey;
   }
+});
+
+// --- Decoration type dropdowns ---
+
+const decoTypeEl = document.getElementById('deco-type');
+const decoGridEl = document.getElementById('deco-grid');
+
+decoTypeEl.addEventListener('change', () => {
+  selectedDecoType = decoTypeEl.value;
+  selectedDecoGrid = '';
+
+  const grids = DECO_GRIDS[selectedDecoType];
+  if (grids) {
+    decoGridEl.innerHTML = '<option value="">All grids</option>' +
+      grids.map(g => `<option value="${g}">${g}</option>`).join('');
+    decoGridEl.classList.remove('hidden');
+  } else {
+    decoGridEl.innerHTML = '<option value="">All grids</option>';
+    decoGridEl.classList.add('hidden');
+  }
+});
+
+decoGridEl.addEventListener('change', () => {
+  selectedDecoGrid = decoGridEl.value;
 });
 
 // --- Header buttons ---
@@ -187,6 +219,8 @@ async function streamAgent(mode, approvedProposal, onEvent) {
     input: {
       orderNumber,
       ...(approvedProposal ? { proposal: approvedProposal } : {}),
+      ...(selectedDecoType ? { decorationType: selectedDecoType } : {}),
+      ...(selectedDecoGrid ? { gridName: selectedDecoGrid } : {}),
     },
   };
 

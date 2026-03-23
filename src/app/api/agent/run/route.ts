@@ -37,6 +37,8 @@ export async function POST(req: Request) {
       orderNumber: string
       customerName?: string
       proposal?: PricingProposalLine[]
+      decorationType?: string
+      gridName?: string
     }
     mode: 'propose' | 'apply'
   }
@@ -70,11 +72,14 @@ export async function POST(req: Request) {
 
   let userMessage: string
   if (mode === 'propose') {
+    const decoHint = input.decorationType
+      ? `\n\nDecoration type hint from user: ${input.decorationType}${input.gridName ? `, grid: ${input.gridName}` : ''}. Prefer this when selecting grids for decoration lines.`
+      : ''
     userMessage = `Please price sales order number: ${input.orderNumber}
 
 Read all the line items, calculate the correct retail price for each one using the pricing matrices and current vendor costs, then output the [PROPOSAL] block with your calculated prices.
 
-Do NOT call set_line_price yet — just calculate and propose.`
+Do NOT call set_line_price yet — just calculate and propose.${decoHint}`
   } else if (mode === 'apply') {
     userMessage = `Apply the approved pricing to sales order number: ${input.orderNumber}
 
