@@ -55,15 +55,15 @@ env:
   - variable: SYNCORE_API_KEY
     secret: syncore-api-key
 
-  - variable: FIREBASE_PROJECT_ID
+  - variable: GCP_PROJECT_ID
     secret: firebase-project-id
 
-  - variable: FIREBASE_CLIENT_EMAIL
+  - variable: GCP_CLIENT_EMAIL
     secret: firebase-client-email
 
   # Paste the full private key (with real newlines) when creating this secret.
   # The app already calls .replace(/\\n/g, '\n') as a fallback.
-  - variable: FIREBASE_PRIVATE_KEY
+  - variable: GCP_PRIVATE_KEY
     secret: firebase-private-key
 
   - variable: SANMAR_API_USER
