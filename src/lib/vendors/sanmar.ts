@@ -48,12 +48,13 @@ export async function getSanmarCost(
       configurationType: 'Decorated'
     }
 
-    const [result] = await withTimeout(
-      client.GetProductPricingAndConfigurationAsync(args),
+    const soapResult = await withTimeout(
+      client.GetProductPricingAndConfigurationAsync(args) as Promise<unknown[]>,
       SOAP_TIMEOUT_MS,
       'SanMar pricing call'
     )
-    const parts = result?.GetProductPricingAndConfigurationResult?.Part || []
+    const result = soapResult[0] as Record<string, unknown> | undefined
+    const parts = (result?.GetProductPricingAndConfigurationResult as Record<string, unknown>)?.Part || []
     const partArray = Array.isArray(parts) ? parts : [parts]
 
     for (const part of partArray) {
