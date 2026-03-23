@@ -2,9 +2,27 @@ import soap from 'soap'
 
 let clientCache: soap.Client | null = null
 
+const SOAP_TIMEOUT_MS = 15_000
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+  })
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    clearTimeout(timer!)
+  }
+}
+
 async function getClient(): Promise<soap.Client> {
   if (clientCache) return clientCache
-  clientCache = await soap.createClientAsync(process.env.SANMAR_PRICING_WSDL!)
+  clientCache = await withTimeout(
+    soap.createClientAsync(process.env.SANMAR_PRICING_WSDL!),
+    SOAP_TIMEOUT_MS,
+    'SanMar WSDL fetch'
+  )
   return clientCache
 }
 
@@ -30,7 +48,11 @@ export async function getSanmarCost(
       configurationType: 'Decorated'
     }
 
-    const [result] = await client.GetProductPricingAndConfigurationAsync(args)
+    const [result] = await withTimeout(
+      client.GetProductPricingAndConfigurationAsync(args),
+      SOAP_TIMEOUT_MS,
+      'SanMar pricing call'
+    )
     const parts = result?.GetProductPricingAndConfigurationResult?.Part || []
     const partArray = Array.isArray(parts) ? parts : [parts]
 
