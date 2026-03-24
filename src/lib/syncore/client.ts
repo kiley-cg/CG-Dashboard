@@ -85,27 +85,37 @@ export async function lookupOrder(id: string): Promise<OrderResult> {
 }
 
 export async function getSalesOrderLines(soId: number, jobId?: number): Promise<SOLine[]> {
-  // Primary: documented endpoint GET /v2/orders/jobs/{job_id}/salesorders/{salesorder_id}
-  if (jobId) {
-    const res = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders/${soId}`, { headers: headers() })
-    if (res.ok) {
-      const data = await res.json() as Record<string, unknown>
-      const items = data.line_items as unknown[] | undefined
-      if (Array.isArray(items) && items.length > 0) return normaliseLines(items)
-    }
-  }
+  if (!jobId) throw new Error(`job_id is required to fetch SO lines (SO ${soId})`)
 
-  throw new Error(`Failed to fetch lines for SO ${soId}${jobId ? ` / job ${jobId}` : ''}`)
+  const res = await fetch(
+    `${BASE}/orders/jobs/${jobId}/salesorders/${soId}/lineitems`,
+    { headers: headers() }
+  )
+  if (!res.ok) throw new Error(`Failed to fetch line items for job ${jobId} / SO ${soId}: HTTP ${res.status}`)
+
+  const data = await res.json() as unknown[]
+  const items = Array.isArray(data) ? data : []
+  return normaliseLines(items)
 }
 
-export async function updateLinePrice(soId: number, lineId: number, newPrice: number): Promise<void> {
-  const res = await fetch(`${BASE}/orders/sales-orders/${soId}/lines/${lineId}`, {
-    method: 'PATCH',
-    headers: headers(),
-    body: JSON.stringify({ price_value: newPrice })
-  })
+export async function updateLinePrice(
+  soId: number,
+  lineId: number,
+  newPrice: number,
+  jobId?: number
+): Promise<void> {
+  if (!jobId) throw new Error(`job_id is required to update line prices (SO ${soId})`)
+
+  const res = await fetch(
+    `${BASE}/orders/jobs/${jobId}/salesorders/${soId}/lineitems/${lineId}`,
+    {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ price_value: newPrice })
+    }
+  )
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`Failed to update line ${lineId} on SO ${soId}: HTTP ${res.status} - ${body}`)
+    throw new Error(`Failed to update line ${lineId} on job ${jobId} / SO ${soId}: HTTP ${res.status} - ${body}`)
   }
 }
