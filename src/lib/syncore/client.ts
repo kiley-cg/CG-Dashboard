@@ -41,22 +41,35 @@ function normaliseLines(raw: unknown[]): SOLine[] {
   })
 }
 
-export async function lookupOrder(id: string): Promise<OrderResult> {
-  // Strip SO suffix to get job number (e.g. "32234-1" -> "32234")
-  const jobId = id.includes('-') ? id.split('-')[0] : id
+function extractArray(data: unknown): Record<string, unknown>[] {
+  if (Array.isArray(data)) return data as Record<string, unknown>[]
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>
+    for (const key of ['results', 'data', 'items', 'salesorders', 'orders']) {
+      if (Array.isArray(d[key])) return d[key] as Record<string, unknown>[]
+    }
+  }
+  return []
+}
 
-  // Documented endpoint: GET /v2/orders/jobs/{job_id}/salesorders
-  const soListRes = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders`, { headers: headers() })
+export async function lookupOrder(id: string): Promise<OrderResult> {
+  // Parse input: "32255-1" → jobNum="32255", soSuffix="1"; "32255" → jobNum="32255"
+  const [jobNum, soSuffix] = id.split('-')
+
+  const soListRes = await fetch(`${BASE}/orders/jobs/${jobNum}/salesorders`, { headers: headers() })
   if (!soListRes.ok) {
     const body = await soListRes.text().catch(() => '')
-    throw new Error(`Order ${id} not found — GET /jobs/${jobId}/salesorders returned HTTP ${soListRes.status}: ${body}`)
+    throw new Error(`Order ${id} not found — GET /jobs/${jobNum}/salesorders returned HTTP ${soListRes.status}: ${body}`)
   }
 
-  const list = await soListRes.json() as Record<string, unknown>[]
-  const arr = Array.isArray(list) ? list : []
-  if (arr.length === 0) throw new Error(`Job ${jobId} has no sales orders`)
+  const arr = extractArray(await soListRes.json())
+  if (arr.length === 0) throw new Error(`Job ${jobNum} has no sales orders`)
 
-  const so = arr[0]
+  // If a suffix was given (e.g. "32255-1"), try to find SO with that number/index
+  const so = soSuffix
+    ? (arr.find(s => String(s.number) === soSuffix || String(s.id) === soSuffix) ?? arr[0])
+    : arr[0]
+
   const soId = so.id as number
   const soNumber = so.number as number | undefined
   const client = so.client as Record<string, unknown> | undefined
@@ -65,7 +78,7 @@ export async function lookupOrder(id: string): Promise<OrderResult> {
     type: 'job',
     soId,
     soNumber,
-    jobId: parseInt(jobId),
+    jobId: parseInt(jobNum),
     customer: (client?.business_name || client?.name) as string | undefined,
     name: so.name as string | undefined,
     raw: so
