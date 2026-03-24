@@ -36,9 +36,10 @@ export async function POST(req: Request) {
     input: {
       orderNumber: string
       customerName?: string
-      proposal?: PricingProposalLine[]
+      decorator?: string
       decorationType?: string
       gridName?: string
+      proposal?: PricingProposalLine[]
     }
     mode: 'propose' | 'apply'
   }
@@ -72,8 +73,8 @@ export async function POST(req: Request) {
 
   let userMessage: string
   if (mode === 'propose') {
-    const decoHint = input.decorationType
-      ? `\n\nDecoration type hint from user: ${input.decorationType}${input.gridName ? `, grid: ${input.gridName}` : ''}. Prefer this when selecting grids for decoration lines.`
+    const decoHint = (input.decorator || input.decorationType)
+      ? `\n\nUser-specified decoration details:${input.decorator ? ` Decorator: ${input.decorator}.` : ''}${input.decorationType ? ` Decoration type: ${input.decorationType}.` : ''}${input.gridName ? ` Grid: ${input.gridName}.` : ''} Use these when pricing decoration lines — do not try to infer them from the order.`
       : ''
     userMessage = `Please price sales order number: ${input.orderNumber}
 

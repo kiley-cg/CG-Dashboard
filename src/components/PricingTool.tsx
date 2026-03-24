@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { OrderLookup } from './OrderLookup'
+import type { OrderLookupValues } from './OrderLookup'
 import { AgentThinking } from './AgentThinking'
 import { PricingProposal } from './PricingProposal'
 import type { AgentEvent, PricingProposalLine } from '@/lib/agent/types'
@@ -13,6 +14,7 @@ export function PricingTool() {
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [proposal, setProposal] = useState<PricingProposalLine[] | null>(null)
   const [currentOrder, setCurrentOrder] = useState<string>('')
+  const [currentLookup, setCurrentLookup] = useState<OrderLookupValues | null>(null)
   const [summary, setSummary] = useState<string>('')
   const [errorMsg, setErrorMsg] = useState<string>('')
 
@@ -20,11 +22,17 @@ export function PricingTool() {
     setEvents(prev => [...prev, event])
   }, [])
 
-  async function runAgent(orderNumber: string, mode: 'propose' | 'apply', proposalData?: PricingProposalLine[]) {
+  async function runAgent(lookup: OrderLookupValues, mode: 'propose' | 'apply', proposalData?: PricingProposalLine[]) {
     const body = {
       task: 'pricing',
       mode,
-      input: { orderNumber, proposal: proposalData }
+      input: {
+        orderNumber: lookup.orderNumber,
+        decorator: lookup.decorator,
+        decorationType: lookup.decorationType || undefined,
+        gridName: lookup.gridName || undefined,
+        proposal: proposalData
+      }
     }
 
     const res = await fetch('/api/agent/run', {
@@ -71,8 +79,9 @@ export function PricingTool() {
     }
   }
 
-  async function handleSubmit(orderNumber: string) {
-    setCurrentOrder(orderNumber)
+  async function handleSubmit(values: OrderLookupValues) {
+    setCurrentOrder(values.orderNumber)
+    setCurrentLookup(values)
     setPhase('proposing')
     setEvents([])
     setProposal(null)
@@ -80,8 +89,7 @@ export function PricingTool() {
     setErrorMsg('')
 
     try {
-      await runAgent(orderNumber, 'propose')
-      // If no explicit proposal event, check if we got a complete
+      await runAgent(values, 'propose')
       setPhase(prev => prev === 'proposing' ? 'done' : prev)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
@@ -90,12 +98,12 @@ export function PricingTool() {
   }
 
   async function handleApply() {
-    if (!proposal || !currentOrder) return
+    if (!proposal || !currentLookup) return
     setPhase('applying')
     setEvents(prev => [...prev, { type: 'reasoning', text: '\n--- Applying approved pricing ---\n' }])
 
     try {
-      await runAgent(currentOrder, 'apply', proposal)
+      await runAgent(currentLookup, 'apply', proposal)
       setPhase('done')
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err))
@@ -116,6 +124,7 @@ export function PricingTool() {
     setEvents([])
     setSummary('')
     setCurrentOrder('')
+    setCurrentLookup(null)
     setErrorMsg('')
   }
 
