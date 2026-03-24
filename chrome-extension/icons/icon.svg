@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Rounded square background with teal gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6dd5c8"/>
+      <stop offset="100%" style="stop-color:#4cbcb0"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="24" ry="24" fill="url(#bg)"/>
+
+  <!-- Outer teal circle -->
+  <circle cx="64" cy="64" r="52" fill="none" stroke="#2a9d8f" stroke-width="6"/>
+
+  <!-- Shield outer (dark teal) -->
+  <path d="M64 20 L88 32 L88 62 Q88 82 64 96 Q40 82 40 62 L40 32 Z" fill="#2a9d8f"/>
+
+  <!-- Shield inner (light teal) -->
+  <path d="M64 26 L83 36 L83 62 Q83 78 64 90 Q45 78 45 62 L45 36 Z" fill="#b2ebe6"/>
+
+  <!-- Dollar sign -->
+  <text x="64" y="65" font-family="Arial, sans-serif" font-size="28" font-weight="bold"
+        fill="#2a9d8f" text-anchor="middle" dominant-baseline="middle">$</text>
+
+  <!-- Green checkmark -->
+  <polyline points="44,62 57,76 84,44" fill="none" stroke="#3a8a3a" stroke-width="11"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Small 4-point star bottom right -->
+  <path d="M115 115 L116.5 112 L118 115 L121 116.5 L118 118 L116.5 121 L115 118 L112 116.5 Z"
+        fill="white" opacity="0.8"/>
+</svg>
