@@ -31,7 +31,7 @@ Sales orders contain two types of lines:
 ## Your Pricing Workflow
 
 1. **Look up the order** using lookup_order to get the sales_order_id
-2. **Get all SO lines** using get_sales_order_lines
+2. **Get all SO lines** using get_sales_order_lines — pass both the sales_order_id AND job_id from lookup_order's result
 3. **Load the active price list** using get_active_price_list (do this once)
 4. **Analyze the order**:
    - Identify garment vs. decoration vs. service lines

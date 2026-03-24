@@ -57,11 +57,32 @@ export async function lookupOrder(id: string): Promise<OrderResult> {
   }
 }
 
-export async function getSalesOrderLines(soId: number): Promise<SOLine[]> {
+export async function getSalesOrderLines(soId: number, jobId?: number): Promise<SOLine[]> {
+  // Try the standard SO endpoint first
   const res = await fetch(`${BASE}/orders/sales-orders/${soId}/lines`, { headers: headers() })
-  if (!res.ok) throw new Error(`Failed to fetch SO ${soId} lines: HTTP ${res.status}`)
-  const data = await res.json()
-  return Array.isArray(data) ? data : (data.lines || data.data || [])
+  if (res.ok) {
+    const data = await res.json()
+    return Array.isArray(data) ? data : (data.lines || data.data || [])
+  }
+
+  // If the internal DB ID didn't work and we have a job ID, try job-based endpoints
+  if (jobId) {
+    const candidates = [
+      `${BASE}/orders/jobs/${jobId}/lines`,
+      `${BASE}/orders/jobs/${jobId}/sales-orders/${soId}/lines`,
+      `${BASE}/orders/sales-orders/${jobId}/lines`,
+    ]
+    for (const url of candidates) {
+      const r = await fetch(url, { headers: headers() })
+      if (r.ok) {
+        const data = await r.json()
+        const lines = Array.isArray(data) ? data : (data.lines || data.data || [])
+        if (lines.length > 0) return lines
+      }
+    }
+  }
+
+  throw new Error(`Failed to fetch SO ${soId} lines: HTTP ${res.status}`)
 }
 
 export async function updateLinePrice(soId: number, lineId: number, newPrice: number): Promise<void> {
