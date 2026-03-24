@@ -40,6 +40,8 @@ async function init() {
   dashboardUrl = local.dashboardUrl || 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
   apiKey = local.apiKey || '';
 
+  loadPriceLists();
+
   if (session.orderNumber) {
     activateOrder(session.orderNumber);
   } else {
@@ -76,14 +78,31 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && (changes.dashboardUrl || changes.apiKey)) {
     dashboardUrl = changes.dashboardUrl?.newValue || dashboardUrl;
     apiKey = changes.apiKey?.newValue || apiKey;
+    loadPriceLists();
   }
 });
 
-// --- Decorator input + Decoration type dropdowns ---
+// --- Pricing grid (decorator) dropdown ---
 
-document.getElementById('decorator').addEventListener('input', (e) => {
-  selectedDecorator = e.target.value.trim();
+const decoratorEl = document.getElementById('decorator');
+
+decoratorEl.addEventListener('change', () => {
+  selectedDecorator = decoratorEl.value;
 });
+
+async function loadPriceLists() {
+  try {
+    const res = await fetch(dashboardUrl + '/api/price-lists', {
+      headers: apiKey ? { 'x-extension-api-key': apiKey } : {}
+    });
+    if (!res.ok) throw new Error('Failed to load');
+    const { priceLists } = await res.json();
+    decoratorEl.innerHTML = '<option value="">Auto-detect</option>' +
+      priceLists.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('');
+  } catch {
+    decoratorEl.innerHTML = '<option value="">Auto-detect</option>';
+  }
+}
 
 const decoTypeEl = document.getElementById('deco-type');
 const decoGridEl = document.getElementById('deco-grid');

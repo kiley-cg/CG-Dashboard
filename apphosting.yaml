@@ -75,6 +75,9 @@ env:
   - variable: SS_API_KEY
     secret: ss-api-key
 
+  - variable: SS_CUSTOMER_NUMBER
+    secret: ss-customer-number
+
   # Random 32-char string: openssl rand -base64 32
   - variable: AUTH_SECRET
     secret: auth-secret
