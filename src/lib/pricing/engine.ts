@@ -127,7 +127,22 @@ export function getDecorationCost(
   if (!matrix) return 0
   const cols = columns || QUANTITY_BRACKETS.map(String)
   const qtyBracket = getClosestQtyBracketFromColumns(quantity, cols)
-  return matrix[rowKey]?.[qtyBracket] ?? 0
+
+  // Exact match first
+  if (matrix[rowKey]?.[qtyBracket] !== undefined) return matrix[rowKey][qtyBracket]
+
+  // If rowKey is numeric, snap up to the nearest row >= the given value
+  const numKey = Number(rowKey)
+  if (!isNaN(numKey)) {
+    const sortedRows = Object.keys(matrix).map(Number).sort((a, b) => a - b)
+    const snapped = sortedRows.find(r => r >= numKey)
+    if (snapped !== undefined) return matrix[String(snapped)]?.[qtyBracket] ?? 0
+    // If value exceeds all rows, use the highest row
+    const highest = sortedRows[sortedRows.length - 1]
+    return matrix[String(highest)]?.[qtyBracket] ?? 0
+  }
+
+  return 0
 }
 
 export function applyMarkup(netPrice: number, markupPercent: number): number {
