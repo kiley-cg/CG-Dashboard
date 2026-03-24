@@ -37,8 +37,9 @@ export async function lookupOrder(id: string): Promise<OrderResult> {
     }
   }
 
-  // Fall back to Job ID
-  const jobRes = await fetch(`${BASE}/orders/jobs/${id}`, { headers: headers() })
+  // Fall back to Job ID — also try stripping the SO suffix (e.g. "32234-1" -> "32234")
+  const baseId = id.includes('-') ? id.split('-')[0] : id
+  const jobRes = await fetch(`${BASE}/orders/jobs/${baseId}`, { headers: headers() })
   if (!jobRes.ok) throw new Error(`Order ${id} not found as SO or Job (HTTP ${jobRes.status})`)
   const job = await jobRes.json()
 
