@@ -45,43 +45,29 @@ export async function lookupOrder(id: string): Promise<OrderResult> {
   // Strip SO suffix to get job number (e.g. "32234-1" -> "32234")
   const jobId = id.includes('-') ? id.split('-')[0] : id
 
-  // Try job lookup first using the documented endpoint
-  const jobRes = await fetch(`${BASE}/orders/jobs/${jobId}`, { headers: headers() })
-  if (jobRes.ok) {
-    const job = await jobRes.json() as Record<string, unknown>
-    const salesOrders = (
-      (job.sales_orders || job.salesOrders || []) as { id: number }[]
-    )
-    if (salesOrders.length > 0) {
-      const soId = salesOrders[0].id
-      const client = job.client as Record<string, unknown> | undefined
+  // Use the documented endpoint: GET /v2/orders/jobs/{job_id}/salesorders
+  // Returns an array of SO objects whose .id is the correct salesorder_id
+  // for all subsequent /salesorders/{salesorder_id}/... calls.
+  const soListRes = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders`, { headers: headers() })
+  if (soListRes.ok) {
+    const list = await soListRes.json() as Record<string, unknown>[]
+    const arr = Array.isArray(list) ? list : []
+    if (arr.length > 0) {
+      const so = arr[0]
+      const soId = so.id as number
+      const client = so.client as Record<string, unknown> | undefined
       return {
         type: 'job',
         soId,
         jobId: parseInt(jobId),
         customer: (client?.business_name || client?.name) as string | undefined,
-        name: job.name as string | undefined,
-        raw: job
+        name: so.name as string | undefined,
+        raw: so
       }
     }
   }
 
-  // If no job found, also try the sales orders list for the job
-  const soListRes = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders`, { headers: headers() })
-  if (soListRes.ok) {
-    const list = await soListRes.json() as { id: number }[]
-    const arr = Array.isArray(list) ? list : []
-    if (arr.length > 0) {
-      return {
-        type: 'job',
-        soId: arr[0].id,
-        jobId: parseInt(jobId),
-        raw: list
-      }
-    }
-  }
-
-  throw new Error(`Order ${id} not found (tried job ${jobId}: HTTP ${jobRes.status})`)
+  throw new Error(`Order ${id} not found — GET /jobs/${jobId}/salesorders returned HTTP ${soListRes.status}`)
 }
 
 export async function getSalesOrderLines(soId: number, jobId?: number): Promise<SOLine[]> {
