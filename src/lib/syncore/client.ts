@@ -27,60 +27,75 @@ export interface OrderResult {
   raw: unknown
 }
 
+// Normalise a raw line_items entry from the Syncore API into our SOLine shape.
+// The API returns supplier as an object { id, name, ... } — we flatten to the name string.
+function normaliseLines(raw: unknown[]): SOLine[] {
+  return raw.map((item) => {
+    const r = item as Record<string, unknown>
+    const supplierRaw = r.supplier
+    const supplier =
+      supplierRaw && typeof supplierRaw === 'object'
+        ? ((supplierRaw as Record<string, unknown>).name as string) ?? null
+        : (supplierRaw as string | null) ?? null
+    return { ...r, supplier } as SOLine
+  })
+}
+
 export async function lookupOrder(id: string): Promise<OrderResult> {
-  // Try SO ID first
-  const soRes = await fetch(`${BASE}/orders/sales-orders/${id}/lines`, { headers: headers() })
-  if (soRes.ok) {
-    const lines = await soRes.json()
-    if (Array.isArray(lines) && lines.length >= 0) {
-      return { type: 'sales_order', soId: parseInt(id), raw: lines }
+  // Strip SO suffix to get job number (e.g. "32234-1" -> "32234")
+  const jobId = id.includes('-') ? id.split('-')[0] : id
+
+  // Try job lookup first using the documented endpoint
+  const jobRes = await fetch(`${BASE}/orders/jobs/${jobId}`, { headers: headers() })
+  if (jobRes.ok) {
+    const job = await jobRes.json() as Record<string, unknown>
+    const salesOrders = (
+      (job.sales_orders || job.salesOrders || []) as { id: number }[]
+    )
+    if (salesOrders.length > 0) {
+      const soId = salesOrders[0].id
+      const client = job.client as Record<string, unknown> | undefined
+      return {
+        type: 'job',
+        soId,
+        jobId: parseInt(jobId),
+        customer: (client?.business_name || client?.name) as string | undefined,
+        name: job.name as string | undefined,
+        raw: job
+      }
     }
   }
 
-  // Fall back to Job ID — also try stripping the SO suffix (e.g. "32234-1" -> "32234")
-  const baseId = id.includes('-') ? id.split('-')[0] : id
-  const jobRes = await fetch(`${BASE}/orders/jobs/${baseId}`, { headers: headers() })
-  if (!jobRes.ok) throw new Error(`Order ${id} not found as SO or Job (HTTP ${jobRes.status})`)
-  const job = await jobRes.json()
-
-  const salesOrders: { id: number }[] = job.sales_orders || job.salesOrders || []
-  if (salesOrders.length === 0) throw new Error(`Job ${id} has no sales orders`)
-
-  const soId = salesOrders[0].id
-  return {
-    type: 'job',
-    soId,
-    jobId: job.id,
-    customer: job.customer?.name || job.customerName,
-    name: job.name || job.title,
-    raw: job
+  // If no job found, also try the sales orders list for the job
+  const soListRes = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders`, { headers: headers() })
+  if (soListRes.ok) {
+    const list = await soListRes.json() as { id: number }[]
+    const arr = Array.isArray(list) ? list : []
+    if (arr.length > 0) {
+      return {
+        type: 'job',
+        soId: arr[0].id,
+        jobId: parseInt(jobId),
+        raw: list
+      }
+    }
   }
+
+  throw new Error(`Order ${id} not found (tried job ${jobId}: HTTP ${jobRes.status})`)
 }
 
 export async function getSalesOrderLines(soId: number, jobId?: number): Promise<SOLine[]> {
-  const candidates = [
-    `${BASE}/orders/sales-orders/${soId}/lines`,
-    `${BASE}/orders/sales-orders/${soId}`,        // lines may be embedded in the SO object
-    ...(jobId ? [
-      `${BASE}/orders/jobs/${jobId}/lines`,
-      `${BASE}/orders/jobs/${jobId}/sales-orders/${soId}/lines`,
-      `${BASE}/orders/sales-orders/${jobId}/lines`,
-    ] : []),
-  ]
-
-  let lastStatus = 0
-  for (const url of candidates) {
-    const r = await fetch(url, { headers: headers() })
-    if (r.ok) {
-      const data = await r.json()
-      const lines = Array.isArray(data) ? data : (data.lines || data.data || data.lineItems || [])
-      if (lines.length > 0) return lines
-    } else {
-      lastStatus = r.status
+  // Primary: documented endpoint GET /v2/orders/jobs/{job_id}/salesorders/{salesorder_id}
+  if (jobId) {
+    const res = await fetch(`${BASE}/orders/jobs/${jobId}/salesorders/${soId}`, { headers: headers() })
+    if (res.ok) {
+      const data = await res.json() as Record<string, unknown>
+      const items = data.line_items as unknown[] | undefined
+      if (Array.isArray(items) && items.length > 0) return normaliseLines(items)
     }
   }
 
-  throw new Error(`Failed to fetch lines for SO ${soId}${jobId ? ` / job ${jobId}` : ''}: HTTP ${lastStatus}`)
+  throw new Error(`Failed to fetch lines for SO ${soId}${jobId ? ` / job ${jobId}` : ''}`)
 }
 
 export async function updateLinePrice(soId: number, lineId: number, newPrice: number): Promise<void> {
