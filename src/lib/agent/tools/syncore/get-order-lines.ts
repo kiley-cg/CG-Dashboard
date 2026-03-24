@@ -8,12 +8,13 @@ registerTool({
     type: 'object',
     properties: {
       sales_order_id: { type: 'number', description: 'The numeric sales order ID from lookup_order' },
-      job_id: { type: 'number', description: 'The job ID from lookup_order (if available) — used as fallback if the primary endpoint fails' }
+      job_id: { type: 'number', description: 'The job ID from lookup_order (required)' },
+      so_number: { type: 'number', description: 'The soNumber from lookup_order (if present) — used as alternate salesorder_id if the primary fails' }
     },
     required: ['sales_order_id']
   },
   execute: async (input) => {
-    const { sales_order_id, job_id } = input as { sales_order_id: number; job_id?: number }
-    return await getSalesOrderLines(sales_order_id, job_id)
+    const { sales_order_id, job_id, so_number } = input as { sales_order_id: number; job_id?: number; so_number?: number }
+    return await getSalesOrderLines(sales_order_id, job_id, so_number)
   }
 })
