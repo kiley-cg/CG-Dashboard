@@ -125,6 +125,18 @@
     }
     .deco-select:focus { outline: none; border-color: #4f46e5; }
     .deco-select option { background: #1a1d27; }
+    .deco-input {
+      flex: 1;
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      width: 100%;
+    }
+    .deco-input::placeholder { color: #4a5568; }
+    .deco-input:focus { outline: none; border-color: #4f46e5; }
 
     .warning {
       font-size: 12px;
@@ -346,6 +358,13 @@
         </div>
 
         <div class="deco-section">
+          <span class="section-label">Decorator</span>
+          <div class="deco-row">
+            <input id="decorator" class="deco-input" type="text" placeholder="e.g. Stitch Masters (optional)" />
+          </div>
+        </div>
+
+        <div class="deco-section">
           <span class="section-label">Decoration Type</span>
           <div class="deco-row">
             <select id="deco-type" class="deco-select">
@@ -418,6 +437,7 @@
         <div class="error-icon">✕</div>
         <div id="error-msg" class="error-msg"></div>
         <button id="btn-retry" class="btn-secondary">Retry</button>
+        <button id="btn-open-full-error" class="btn-ghost">Open Full UI ↗</button>
       </div>
     </div>
   </div>

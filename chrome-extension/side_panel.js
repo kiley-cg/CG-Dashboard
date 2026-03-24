@@ -9,6 +9,7 @@ let orderNumber = null;
 let proposal = null;
 let dashboardUrl = 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
 let apiKey = '';
+let selectedDecorator = '';
 let selectedDecoType = '';
 let selectedDecoGrid = '';
 
@@ -78,7 +79,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// --- Decoration type dropdowns ---
+// --- Decorator input + Decoration type dropdowns ---
+
+document.getElementById('decorator').addEventListener('input', (e) => {
+  selectedDecorator = e.target.value.trim();
+});
 
 const decoTypeEl = document.getElementById('deco-type');
 const decoGridEl = document.getElementById('deco-grid');
@@ -205,10 +210,13 @@ document.getElementById('btn-retry').addEventListener('click', () => runPropose(
 
 // --- Open Full UI ---
 
-document.getElementById('btn-open-full').addEventListener('click', () => {
+function openFullUI() {
   const url = dashboardUrl + '/pricing' + (orderNumber ? '?order=' + encodeURIComponent(orderNumber) : '');
   chrome.tabs.create({ url });
-});
+}
+
+document.getElementById('btn-open-full').addEventListener('click', openFullUI);
+document.getElementById('btn-open-full-error').addEventListener('click', openFullUI);
 
 // --- SSE streaming helper ---
 
@@ -219,6 +227,7 @@ async function streamAgent(mode, approvedProposal, onEvent) {
     input: {
       orderNumber,
       ...(approvedProposal ? { proposal: approvedProposal } : {}),
+      ...(selectedDecorator ? { decorator: selectedDecorator } : {}),
       ...(selectedDecoType ? { decorationType: selectedDecoType } : {}),
       ...(selectedDecoGrid ? { gridName: selectedDecoGrid } : {}),
     },
