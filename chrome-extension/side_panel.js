@@ -7,7 +7,7 @@
 
 let orderNumber = null;
 let proposal = null;
-let dashboardUrl = 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
+let dashboardUrl = 'https://cg-dashboard-ai.netlify.app';
 let apiKey = '';
 let selectedDecorator = '';
 let selectedDecoType = '';
@@ -37,7 +37,7 @@ async function init() {
     chrome.storage.local.get(['dashboardUrl', 'apiKey']),
   ]);
 
-  dashboardUrl = local.dashboardUrl || 'https://syncore-pricing--syncoreai-8aa40.us-central1.hosted.app';
+  dashboardUrl = local.dashboardUrl || 'https://cg-dashboard-ai.netlify.app';
   apiKey = local.apiKey || '';
 
   loadPriceLists();
