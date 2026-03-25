@@ -1,0 +1,9 @@
+[build]
+  command    = "npm run build"
+  publish    = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Next.js on Netlify — handled automatically by the Netlify Next.js runtime.
+# No extra plugin needed for Next 13+.
