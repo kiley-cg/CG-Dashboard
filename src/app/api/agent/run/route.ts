@@ -140,15 +140,16 @@ Please call set_line_price for each line in the proposal that does not have skip
           send(event)
         })
 
-        // AUTO-SAVE: After successful apply, persist a summary to shared organizational memory.
-        // Failures are silent — memory save should never block the response.
-        if (mode === 'apply' && (capturedProposal || input.proposal)) {
-          const proposalToSave = capturedProposal || input.proposal!
+        // AUTO-SAVE: Persist a pricing summary to shared organizational memory.
+        // On apply: save the final applied prices. On propose: save the proposal so future
+        // runs have context even if apply never completed. Failures are non-fatal.
+        const proposalToSave = capturedProposal || (mode === 'apply' ? input.proposal : null)
+        if (proposalToSave) {
           saveOrderSummary({
             orderNumber: input.orderNumber,
             customer: capturedCustomer || 'Unknown',
             lines: proposalToSave,
-            source: 'pricing'
+            source: mode === 'apply' ? 'pricing:applied' : 'pricing:proposed'
           }).catch(err => console.error('Memory auto-save failed (non-fatal):', err))
         }
       } catch (err) {
