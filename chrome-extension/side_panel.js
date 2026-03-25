@@ -71,7 +71,14 @@ function activateOrder(num) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes.orderNumber) {
     const newOrder = changes.orderNumber.newValue;
-    if (newOrder && newOrder !== orderNumber) {
+    if (!newOrder) {
+      // Order was cleared (navigated away from order page)
+      orderNumber = null;
+      proposal = null;
+      document.getElementById('order-badge').classList.add('hidden');
+      document.getElementById('btn-run').disabled = true;
+      showState('waiting');
+    } else if (newOrder !== orderNumber) {
       activateOrder(newOrder);
     }
   }
