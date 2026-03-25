@@ -2,7 +2,7 @@ import soap from 'soap'
 
 let clientCache: soap.Client | null = null
 
-const SOAP_TIMEOUT_MS = 15_000
+const SOAP_TIMEOUT_MS = 20_000
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
@@ -26,12 +26,45 @@ async function getClient(): Promise<soap.Client> {
   return clientCache
 }
 
+/** Normalize size codes: "2XL" → "2XL", "XXL" → "2XL", etc. */
+function normalizeSize(size: string): string {
+  const s = size.toUpperCase().trim()
+  const aliases: Record<string, string> = {
+    XXS: '2XS', S: 'S', M: 'M', L: 'L', XL: 'XL',
+    XXL: '2XL', XXXL: '3XL', XXXXL: '4XL', XXXXXL: '5XL', XXXXXXL: '6XL',
+  }
+  return aliases[s] ?? s
+}
+
+/** Pick the best price tier: highest quantityMin that is still ≤ requested qty */
+function bestPrice(
+  pricing: Record<string, unknown> | Record<string, unknown>[],
+  qty: number
+): number | null {
+  const prices = Array.isArray(pricing) ? pricing : [pricing]
+  let best: number | null = null
+  let bestMin = -1
+
+  for (const p of prices) {
+    // PromoStandards v2 uses quantityMin; some implementations expose minQuantity
+    const minQty = parseInt(String(p.quantityMin ?? p.minQuantity ?? 0))
+    if (qty >= minQty && minQty > bestMin) {
+      const price = parseFloat(String(p.price ?? p.salePrice ?? p.netPrice ?? 0))
+      if (price > 0) {
+        best = price
+        bestMin = minQty
+      }
+    }
+  }
+  return best
+}
+
 export async function getSanmarCost(
   style: string,
   color: string,
   size: string,
   qty: number
-): Promise<number | null> {
+): Promise<{ cost: number | null; error?: string }> {
   try {
     const client = await getClient()
     const args = {
@@ -39,13 +72,15 @@ export async function getSanmarCost(
       id: process.env.SANMAR_API_USER,
       password: process.env.SANMAR_API_PASSWORD,
       productId: style,
-      partId: `${style}-${color}-${size}`,
+      // Don't pass partId — fetch all parts for the style and filter client-side.
+      // SanMar's internal part IDs use color codes, not color names.
+      partId: '',
       currency: 'USD',
-      fobId: '1',
+      fobId: '',
       priceType: 'Net',
       localizationCountry: 'US',
       localizationLanguage: 'en',
-      configurationType: 'Decorated'
+      configurationType: 'Decorated',
     }
 
     const soapResult = await withTimeout(
@@ -53,25 +88,59 @@ export async function getSanmarCost(
       SOAP_TIMEOUT_MS,
       'SanMar pricing call'
     )
-    const result = soapResult[0] as Record<string, unknown> | undefined
-    const parts = (result?.GetProductPricingAndConfigurationResult as Record<string, unknown>)?.Part || []
-    const partArray = Array.isArray(parts) ? parts : [parts]
 
-    for (const part of partArray) {
-      const pricing = part?.PartPriceArray?.PartPrice
-      if (!pricing) continue
-      const prices = Array.isArray(pricing) ? pricing : [pricing]
-      for (const p of prices) {
-        const minQty = parseInt(p.minQuantity || '0')
-        if (qty >= minQty) {
-          const price = parseFloat(p.price || p.salePrice || '0')
-          if (price > 0) return price
-        }
-      }
+    const result = soapResult[0] as Record<string, unknown> | undefined
+    const rawParts =
+      (result?.GetProductPricingAndConfigurationResult as Record<string, unknown>)?.Part
+    if (!rawParts) {
+      const errData = result?.GetProductPricingAndConfigurationResult as Record<string, unknown>
+      const errMsg = errData?.errorMessage ?? errData?.serviceMessageArray ?? 'No parts returned'
+      return { cost: null, error: `SanMar returned no parts: ${JSON.stringify(errMsg)}` }
     }
-    return null
+
+    const partArray = Array.isArray(rawParts) ? rawParts : [rawParts]
+    const normalizedSize = normalizeSize(size)
+    const colorLower = color.toLowerCase().replace(/[-_\s]+/g, ' ').trim()
+
+    // Find the part matching our color + size
+    for (const part of partArray) {
+      const partId = String(part.partId ?? '')
+      // partId format is typically "STYLE-COLORCODE-SIZE" — match on size suffix
+      const partSizeMatch = partId.split('-').pop()?.toUpperCase()
+      const normalizePartSize = partSizeMatch ? normalizeSize(partSizeMatch) : ''
+
+      // Match by description if available (color name is in partDescription)
+      const description = String(part.partDescription ?? '').toLowerCase()
+      const sizeMatch =
+        normalizePartSize === normalizedSize ||
+        description.includes(normalizedSize.toLowerCase())
+      const colorMatch =
+        description.includes(colorLower) ||
+        colorLower.split(' ').every(word => description.includes(word))
+
+      if (!sizeMatch || !colorMatch) continue
+
+      const pricing = (part as Record<string, unknown>)?.PartPriceArray
+        ? ((part as Record<string, Record<string, unknown>>).PartPriceArray?.PartPrice)
+        : null
+      if (!pricing) continue
+
+      const price = bestPrice(pricing as Record<string, unknown> | Record<string, unknown>[], qty)
+      if (price !== null) return { cost: price }
+    }
+
+    // Nothing matched — return diagnostic info
+    const partSummary = partArray.slice(0, 5).map(p => ({
+      partId: (p as Record<string, unknown>).partId,
+      desc: (p as Record<string, unknown>).partDescription,
+    }))
+    return {
+      cost: null,
+      error: `No matching part for style=${style} color="${color}" size=${normalizedSize}. Sample parts: ${JSON.stringify(partSummary)}`,
+    }
   } catch (err) {
-    console.error('SanMar SOAP error:', err)
-    return null
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('SanMar SOAP error:', message)
+    return { cost: null, error: `SanMar SOAP error: ${message}` }
   }
 }
