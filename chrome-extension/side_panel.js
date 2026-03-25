@@ -100,7 +100,10 @@ async function loadPriceLists() {
     decoratorEl.innerHTML = '<option value="">Auto-detect</option>' +
       priceLists.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('');
   } catch {
-    decoratorEl.innerHTML = '<option value="">Auto-detect</option>';
+    decoratorEl.innerHTML =
+      '<option value="">Auto-detect</option>' +
+      '<option value="frontier">Frontier</option>' +
+      '<option value="oregon-screen-impressions">Oregon Screen Impressions</option>';
   }
 }
 

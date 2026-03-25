@@ -13,19 +13,21 @@ function getApp() {
   })
 }
 
-export async function GET(request: Request) {
-  const apiKey = request.headers.get('x-extension-api-key')
-  if (process.env.EXTENSION_API_KEY && apiKey !== process.env.EXTENSION_API_KEY) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+const FALLBACK_PRICE_LISTS = [
+  { id: 'frontier', name: 'Frontier' },
+  { id: 'oregon-screen-impressions', name: 'Oregon Screen Impressions' },
+]
 
+export async function GET() {
   try {
     const db = getFirestore(getApp())
     const snapshot = await db.collection('priceLists').orderBy('name').get()
+    if (snapshot.empty) {
+      return NextResponse.json({ priceLists: FALLBACK_PRICE_LISTS })
+    }
     const lists = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name as string }))
     return NextResponse.json({ priceLists: lists })
   } catch {
-    // Fallback: return the single default
-    return NextResponse.json({ priceLists: [{ id: 'default', name: 'Default (Frontier)' }] })
+    return NextResponse.json({ priceLists: FALLBACK_PRICE_LISTS })
   }
 }
