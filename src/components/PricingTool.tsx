@@ -5,6 +5,7 @@ import { OrderLookup } from './OrderLookup'
 import type { OrderLookupValues } from './OrderLookup'
 import { AgentThinking } from './AgentThinking'
 import { PricingProposal } from './PricingProposal'
+import { PricingChat } from './PricingChat'
 import type { AgentEvent, PricingProposalLine } from '@/lib/agent/types'
 
 type Phase = 'idle' | 'proposing' | 'proposal_ready' | 'applying' | 'done' | 'error'
@@ -169,6 +170,16 @@ export function PricingTool() {
           onApply={handleApply}
           onCancel={handleCancel}
           isApplying={isApplying}
+        />
+      )}
+
+      {/* Refinement chat — visible once a proposal exists */}
+      {proposal && phase !== 'idle' && phase !== 'proposing' && (
+        <PricingChat
+          orderNumber={currentOrder}
+          decorator={currentLookup?.decorator}
+          currentProposal={proposal}
+          onProposalUpdate={setProposal}
         />
       )}
 

@@ -5,7 +5,8 @@ import { auth } from '@/lib/auth'
 import { runAgent } from '@/lib/agent/runtime'
 import { pricingTask } from '@/lib/agent/tasks/pricing'
 import { searchMemories, saveOrderSummary } from '@/lib/memory/store'
-import type { AgentTask, AgentEvent, PricingProposalLine } from '@/lib/agent/types'
+import type { AgentTask, AgentEvent, PricingProposalLine, ChatMessage } from '@/lib/agent/types'
+import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 
 // Registry of all available agent tasks
 const tasks: Record<string, AgentTask> = {
@@ -40,8 +41,12 @@ export async function POST(req: Request) {
       decorationType?: string
       gridName?: string
       proposal?: PricingProposalLine[]
+      // chat mode only
+      messages?: ChatMessage[]
+      chatMessage?: string
+      currentProposal?: PricingProposalLine[]
     }
-    mode: 'propose' | 'apply'
+    mode: 'propose' | 'apply' | 'chat'
   }
 
   const taskConfig = tasks[taskName]
@@ -72,6 +77,8 @@ export async function POST(req: Request) {
   }
 
   let userMessage: string
+  let priorMessages: MessageParam[] | undefined
+
   if (mode === 'propose') {
     const decoHint = (input.decorator || input.decorationType)
       ? `\n\nUser-specified decoration details:${input.decorator ? ` Decorator: ${input.decorator}.` : ''}${input.decorationType ? ` Decoration type: ${input.decorationType}.` : ''}${input.gridName ? ` Grid: ${input.gridName}.` : ''} Use these when pricing decoration lines — do not try to infer them from the order.`
@@ -88,6 +95,34 @@ Here is the approved pricing proposal:
 ${JSON.stringify(input.proposal, null, 2)}
 
 Please call set_line_price for each line in the proposal that does not have skip=true. Use the sales_order_id and lineId from the proposal.`
+  } else if (mode === 'chat') {
+    // Build context block from current proposal
+    const proposalContext = input.currentProposal?.length
+      ? `\n\n## Current Pricing Proposal (order #${input.orderNumber})\n` +
+        input.currentProposal.map(l =>
+          `  Line ${l.lineId} [${l.lineType}]: ${l.description ?? l.sku} — ` +
+          (l.skip ? 'SKIPPED' : `$${l.calculatedPrice.toFixed(2)} (${l.breakdown})`)
+        ).join('\n')
+      : ''
+
+    taskWithMemory = {
+      ...taskWithMemory,
+      systemPrompt: taskWithMemory.systemPrompt + proposalContext + `
+
+## Refinement Mode
+You are refining or explaining pricing for order #${input.orderNumber}. The proposal above is already calculated.
+- Answer questions about how prices were determined.
+- If the user asks you to change something (different matrix, markup, recalculate a line, etc.), use calculate_price and output a complete updated [PROPOSAL] block.
+- Only call lookup_order / get_sales_order_lines if the user explicitly asks about order details you don't have.
+- Do NOT call set_line_price — that happens separately when the user clicks Apply.`
+    }
+
+    // Convert text-only conversation history into Anthropic message params
+    priorMessages = (input.messages ?? []).map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }))
+    userMessage = input.chatMessage ?? ''
   } else {
     return new Response('Invalid mode', { status: 400, headers: CORS_HEADERS })
   }
@@ -138,12 +173,12 @@ Please call set_line_price for each line in the proposal that does not have skip
           }
 
           send(event)
-        })
+        }, priorMessages)
 
         // AUTO-SAVE: Persist a pricing summary to shared organizational memory.
         // On apply: save the final applied prices. On propose: save the proposal so future
         // runs have context even if apply never completed. Failures are non-fatal.
-        const proposalToSave = capturedProposal || (mode === 'apply' ? input.proposal : null)
+        const proposalToSave = mode !== 'chat' && (capturedProposal || (mode === 'apply' ? input.proposal : null))
         if (proposalToSave) {
           saveOrderSummary({
             orderNumber: input.orderNumber,

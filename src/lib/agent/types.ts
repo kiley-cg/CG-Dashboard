@@ -34,3 +34,8 @@ export type AgentEvent =
   | { type: 'proposal'; lines: PricingProposalLine[] }
   | { type: 'complete'; summary: string }
   | { type: 'error'; message: string }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}

@@ -9,9 +9,13 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 export async function runAgent(
   task: AgentTask,
   userMessage: string,
-  onEvent: (event: AgentEvent) => void
+  onEvent: (event: AgentEvent) => void,
+  priorMessages?: Anthropic.MessageParam[]
 ): Promise<void> {
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userMessage }]
+  const messages: Anthropic.MessageParam[] = [
+    ...(priorMessages ?? []),
+    { role: 'user', content: userMessage },
+  ]
 
   let iterations = 0
   const MAX_ITERATIONS = 30
