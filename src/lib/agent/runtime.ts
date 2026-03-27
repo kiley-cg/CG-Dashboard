@@ -4,14 +4,13 @@ import { getTool, getToolDefs } from './tools/registry'
 // Side-effect import: registers all tools into the registry
 import './tools/init'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
 export async function runAgent(
   task: AgentTask,
   userMessage: string,
   onEvent: (event: AgentEvent) => void,
   priorMessages?: Anthropic.MessageParam[]
 ): Promise<void> {
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const messages: Anthropic.MessageParam[] = [
     ...(priorMessages ?? []),
     { role: 'user', content: userMessage },
