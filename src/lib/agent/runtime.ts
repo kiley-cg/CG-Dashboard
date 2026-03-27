@@ -24,7 +24,7 @@ export async function runAgent(
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8096,
+      max_tokens: 16384,
       system: task.systemPrompt,
       tools: getToolDefs(task.tools) as Anthropic.Tool[],
       messages
