@@ -16,8 +16,8 @@ registerTool({
   },
   execute: async (input) => {
     const { style, color, size, quantity } = input as { style: string; color: string; size: string; quantity: number }
-    const cost = await getSanmarCost(style, color, size, quantity)
-    if (cost === null) return { cost: null, error: 'Could not retrieve SanMar cost — SOAP lookup failed or product not found' }
-    return { cost, style, color, size, quantity }
+    const result = await getSanmarCost(style, color, size, quantity)
+    if (result.cost === null) return { cost: null, error: result.error ?? 'SanMar SOAP lookup failed' }
+    return { cost: result.cost, style, color, size, quantity }
   }
 })

@@ -7,8 +7,17 @@
 
 let orderNumber = null;
 let proposal = null;
-let dashboardUrl = 'http://localhost:3000';
+let dashboardUrl = 'https://cg-dashboard-ai.netlify.app';
 let apiKey = '';
+let selectedDecorator = '';
+let selectedDecoType = '';
+let selectedDecoGrid = '';
+
+const DECO_GRIDS = {
+  screenPrint: ['Darks', 'Lights', 'Specialty'],
+  embroidery: ['Standard'],
+  patch: ['Hats', 'Flats'],
+};
 
 const ALL_STATES = ['waiting', 'idle', 'thinking', 'proposal', 'applying', 'done', 'error'];
 
@@ -28,8 +37,10 @@ async function init() {
     chrome.storage.local.get(['dashboardUrl', 'apiKey']),
   ]);
 
-  dashboardUrl = local.dashboardUrl || 'http://localhost:3000';
+  dashboardUrl = local.dashboardUrl || 'https://cg-dashboard-ai.netlify.app';
   apiKey = local.apiKey || '';
+
+  loadPriceLists();
 
   if (session.orderNumber) {
     activateOrder(session.orderNumber);
@@ -60,14 +71,69 @@ function activateOrder(num) {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes.orderNumber) {
     const newOrder = changes.orderNumber.newValue;
-    if (newOrder && newOrder !== orderNumber) {
+    if (!newOrder) {
+      // Order was cleared (navigated away from order page)
+      orderNumber = null;
+      proposal = null;
+      document.getElementById('order-badge').classList.add('hidden');
+      document.getElementById('btn-run').disabled = true;
+      showState('waiting');
+    } else if (newOrder !== orderNumber) {
       activateOrder(newOrder);
     }
   }
   if (area === 'local' && (changes.dashboardUrl || changes.apiKey)) {
     dashboardUrl = changes.dashboardUrl?.newValue || dashboardUrl;
     apiKey = changes.apiKey?.newValue || apiKey;
+    loadPriceLists();
   }
+});
+
+// --- Pricing grid (decorator) dropdown ---
+
+const decoratorEl = document.getElementById('decorator');
+
+decoratorEl.addEventListener('change', () => {
+  selectedDecorator = decoratorEl.value;
+});
+
+async function loadPriceLists() {
+  try {
+    const res = await fetch(dashboardUrl + '/api/price-lists', {
+      headers: apiKey ? { 'x-extension-api-key': apiKey } : {}
+    });
+    if (!res.ok) throw new Error('Failed to load');
+    const { priceLists } = await res.json();
+    decoratorEl.innerHTML = '<option value="">Auto-detect</option>' +
+      priceLists.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('');
+  } catch {
+    decoratorEl.innerHTML =
+      '<option value="">Auto-detect</option>' +
+      '<option value="frontier">Frontier</option>' +
+      '<option value="oregon-screen-impressions">Oregon Screen Impressions</option>';
+  }
+}
+
+const decoTypeEl = document.getElementById('deco-type');
+const decoGridEl = document.getElementById('deco-grid');
+
+decoTypeEl.addEventListener('change', () => {
+  selectedDecoType = decoTypeEl.value;
+  selectedDecoGrid = '';
+
+  const grids = DECO_GRIDS[selectedDecoType];
+  if (grids) {
+    decoGridEl.innerHTML = '<option value="">All grids</option>' +
+      grids.map(g => `<option value="${g}">${g}</option>`).join('');
+    decoGridEl.classList.remove('hidden');
+  } else {
+    decoGridEl.innerHTML = '<option value="">All grids</option>';
+    decoGridEl.classList.add('hidden');
+  }
+});
+
+decoGridEl.addEventListener('change', () => {
+  selectedDecoGrid = decoGridEl.value;
 });
 
 // --- Header buttons ---
@@ -91,6 +157,15 @@ async function runPropose() {
   const log = document.getElementById('thinking-log');
   log.innerHTML = '';
   proposal = null;
+
+  if (!apiKey) {
+    showError('API key not set. Open Settings to configure your Extension API Key.');
+    return;
+  }
+  if (!dashboardUrl || dashboardUrl === 'http://localhost:3000') {
+    showError('Dashboard URL not configured. Open Settings and enter your hosted dashboard URL.');
+    return;
+  }
 
   try {
     await streamAgent('propose', null, (event) => {
@@ -164,10 +239,13 @@ document.getElementById('btn-retry').addEventListener('click', () => runPropose(
 
 // --- Open Full UI ---
 
-document.getElementById('btn-open-full').addEventListener('click', () => {
+function openFullUI() {
   const url = dashboardUrl + '/pricing' + (orderNumber ? '?order=' + encodeURIComponent(orderNumber) : '');
   chrome.tabs.create({ url });
-});
+}
+
+document.getElementById('btn-open-full').addEventListener('click', openFullUI);
+document.getElementById('btn-open-full-error').addEventListener('click', openFullUI);
 
 // --- SSE streaming helper ---
 
@@ -178,6 +256,9 @@ async function streamAgent(mode, approvedProposal, onEvent) {
     input: {
       orderNumber,
       ...(approvedProposal ? { proposal: approvedProposal } : {}),
+      ...(selectedDecorator ? { decorator: selectedDecorator } : {}),
+      ...(selectedDecoType ? { decorationType: selectedDecoType } : {}),
+      ...(selectedDecoGrid ? { gridName: selectedDecoGrid } : {}),
     },
   };
 
@@ -191,7 +272,7 @@ async function streamAgent(mode, approvedProposal, onEvent) {
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    const text = await response.text().catch(() => '');
     throw new Error(`API error ${response.status}: ${text}`);
   }
 
@@ -211,7 +292,9 @@ async function streamAgent(mode, approvedProposal, onEvent) {
       if (!line.startsWith('data: ')) continue;
       const json = line.slice(6).trim();
       if (!json) continue;
-      try { onEvent(JSON.parse(json)); } catch { /* skip malformed */ }
+      let parsed;
+      try { parsed = JSON.parse(json); } catch { continue; } // skip malformed JSON only
+      onEvent(parsed); // let callback errors propagate so error events surface
     }
   }
 }

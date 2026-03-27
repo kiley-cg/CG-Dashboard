@@ -89,6 +89,55 @@
     .order-info { display: flex; align-items: center; gap: 8px; }
     .label { color: #718096; }
 
+    /* Decoration selectors */
+    .deco-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    .deco-section .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #4a5568;
+    }
+    .deco-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+    .deco-select {
+      flex: 1;
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234a5568'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 24px;
+    }
+    .deco-select:focus { outline: none; border-color: #4f46e5; }
+    .deco-select option { background: #1a1d27; }
+    .deco-input {
+      flex: 1;
+      background: #1a1d27;
+      color: #e2e8f0;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      width: 100%;
+    }
+    .deco-input::placeholder { color: #4a5568; }
+    .deco-input:focus { outline: none; border-color: #4f46e5; }
+
     .warning {
       font-size: 12px;
       color: #f6ad55;
@@ -307,6 +356,31 @@
           <span class="label">Order detected:</span>
           <strong id="order-display">—</strong>
         </div>
+
+        <div class="deco-section">
+          <span class="section-label">Pricing Grid</span>
+          <div class="deco-row">
+            <select id="decorator" class="deco-select">
+              <option value="">Loading…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="deco-section">
+          <span class="section-label">Decoration Type</span>
+          <div class="deco-row">
+            <select id="deco-type" class="deco-select">
+              <option value="">Auto-detect</option>
+              <option value="screenPrint">Screen Print</option>
+              <option value="embroidery">Embroidery</option>
+              <option value="patch">Patch</option>
+            </select>
+            <select id="deco-grid" class="deco-select hidden">
+              <option value="">All grids</option>
+            </select>
+          </div>
+        </div>
+
         <button id="btn-run" class="btn-primary">Run Pricing Agent</button>
         <div id="config-warning" class="warning hidden">
           API key not set. <a href="#" id="open-options">Open Settings</a>
@@ -365,6 +439,7 @@
         <div class="error-icon">✕</div>
         <div id="error-msg" class="error-msg"></div>
         <button id="btn-retry" class="btn-secondary">Retry</button>
+        <button id="btn-open-full-error" class="btn-ghost">Open Full UI ↗</button>
       </div>
     </div>
   </div>

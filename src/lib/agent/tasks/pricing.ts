@@ -7,31 +7,30 @@ Your job: given a Syncore sales order number, read all line items, calculate the
 
 ## How Decorated Apparel Orders Are Structured
 
-Sales orders contain two types of lines:
+The Syncore API returns a flat list of line items with a "type" field and a "parent_id" field (0 = top-level parent, non-zero = child of that parent line). Key types:
 
-**Garment lines** — physical goods:
-- Have a supplier field (e.g. "SanMar", "S&S Activewear", "SS Activewear")
-- Have a SKU that typically encodes style + color + size (e.g. "PC54-Navy-L" or "SM-PC54-Navy-L")
-- Represent individual size/color combinations
-- The TOTAL quantity across all garment lines is what determines the margin tier
+**Priceable lines** (these have price_value / cost_value you will set):
+- type "Asi" or "Product" — a garment/product header. Has supplier (e.g. "SanMar", "S&S Activewear"), sku, quantity.
+- type "Size" — a size breakdown child of a garment. Each size has its own quantity and price_value. Price each Size line separately (but use TOTAL quantity for margin lookup).
+- type "SetupCharge" or "RunCharge" — flat service fees (screen setup, digitizing, etc.).
+- type "ImprintLocation" — the decoration line that gets a per-unit price (e.g. "Screen Print Full Front"). Has a quantity matching total garment qty.
 
-**Decoration lines** — services applied to garments:
-- No supplier field, or a service-type supplier
-- Description tells you what the decoration is, e.g.:
-  - "Screen Print - 3 Colors - Darks"
-  - "Screen Print Front - 2 Colors - Lights"
-  - "Embroidery - 8000 Stitches"
-  - "Patch - 1 Patch - Hats"
-- The quantity matches the garment quantity (same total units decorated)
+**Metadata child lines** (read-only context, do NOT set prices on these):
+- type "DecorationMethod" — e.g. "Screen Print", "Embroidery"
+- type "DecorationVendor" — who is doing the decoration
+- type "Color" — color of the garment
+- type "DesignName", "ProductStitch", etc.
 
-**Service/setup lines** — one-time charges:
-- e.g. "Screen Setup", "Digitizing Fee", "Screen Setup - 3 Colors"
-- These have flat prices from the additional_services list in the price list
+**Pricing strategy by type:**
+- "Size" lines → look up vendor cost by style/color/size, calculate garment retail price
+- "ImprintLocation" lines → parse technique + colors/stitches from description or sibling DecorationMethod, calculate decoration price
+- "SetupCharge" / "RunCharge" lines → look up in price_list.additionalServices by description match
+- All other types → skip (set skip=true)
 
 ## Your Pricing Workflow
 
 1. **Look up the order** using lookup_order to get the sales_order_id
-2. **Get all SO lines** using get_sales_order_lines
+2. **Get all SO lines** using get_sales_order_lines — pass both the sales_order_id AND job_id from lookup_order's result
 3. **Load the active price list** using get_active_price_list (do this once)
 4. **Analyze the order**:
    - Identify garment vs. decoration vs. service lines
@@ -46,7 +45,7 @@ Sales orders contain two types of lines:
    - Call calculate_price with line_type="decoration", decoration_type, row_key (colors or stitch count as string), grid_name, quantity=TOTAL_QTY
 7. **For service lines**: Look up in price_list.additionalServices by name match, use the retailPrice
 8. **Output a [PROPOSAL] JSON block** summarizing all calculated prices (before writing anything)
-9. **If in apply mode**: call set_line_price for each line with a calculated price
+9. **If in apply mode**: call set_line_price for each line with a calculated price — always pass job_id, sales_order_id, and line_id from lookup_order/get_sales_order_lines
 
 ## Important Rules
 

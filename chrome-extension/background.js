@@ -1,17 +1,18 @@
 'use strict';
 
-// When the extension is installed/updated, configure the side panel to open on icon click
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+// Open the side panel when the user clicks the extension icon (direct user gesture)
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ tabId: tab.id });
 });
 
-// Receive order number from content script → store it + open the side panel
+// Receive order number from content script → store it in session storage
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.type !== 'ORDER_DETECTED') return;
-
   const tabId = sender.tab?.id;
   if (!tabId) return;
 
-  chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
-  chrome.sidePanel.open({ tabId });
+  if (msg.type === 'ORDER_DETECTED') {
+    chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
+  } else if (msg.type === 'ORDER_CLEARED') {
+    chrome.storage.session.remove(['orderNumber']);
+  }
 });

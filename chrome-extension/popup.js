@@ -1,18 +1,18 @@
 'use strict';
 
+let cachedTabId = null;
+
 document.getElementById('btn-settings').addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
 document.getElementById('btn-open-panel').addEventListener('click', () => {
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    const tabId = tabs[0]?.id;
-    if (tabId) chrome.sidePanel.open({ tabId });
-  });
+  if (cachedTabId) chrome.sidePanel.open({ tabId: cachedTabId });
 });
 
-// Show current order if one is active
-chrome.storage.session.get(['orderNumber'], ({ orderNumber }) => {
+// Pre-load tabId and order number so they're ready on button click (no async in handler)
+chrome.storage.session.get(['orderNumber', 'tabId'], ({ orderNumber, tabId }) => {
+  cachedTabId = tabId || null;
   const info = document.getElementById('order-info');
   if (orderNumber) {
     info.innerHTML = `Order: <span id="order-num">${orderNumber}</span>`;

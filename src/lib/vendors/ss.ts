@@ -13,9 +13,10 @@ export async function getSSCost(
   qty: number
 ): Promise<number | null> {
   try {
+    const credentials = Buffer.from(`${process.env.SS_CUSTOMER_NUMBER}:${process.env.SS_API_KEY}`).toString('base64')
     const res = await fetch(`${BASE}/products/${style}?fields=pricing`, {
       headers: {
-        'Authorization': `Bearer ${process.env.SS_API_KEY}`,
+        'Authorization': `Basic ${credentials}`,
         'Content-Type': 'application/json'
       }
     })

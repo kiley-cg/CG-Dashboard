@@ -11,27 +11,60 @@
   function detectOrderNumber() {
     const url = window.location.href;
 
-    // --- DOM-first: extract the human-readable SO# from the page ---
+    // --- 1. URL query params (unambiguous — identifies this specific page) ---
+    const params = new URLSearchParams(window.location.search);
+    for (const key of ['soId', 'salesOrderId', 'jobId', 'orderId', 'so_id', 'job_id', 'order_id', 'id']) {
+      if (params.get(key)) return params.get(key);
+    }
+
+    // --- 2. URL path patterns ---
+    const pathMatch = url.match(/\/SalesOrder\/Details\/([A-Za-z0-9\-]+)/i)
+      || url.match(/\/sales-orders\/(?:view\/|edit\/|details\/)?([A-Za-z0-9\-]+)/i)
+      || url.match(/\/orders\/sales-orders\/([A-Za-z0-9\-]+)/i)
+      || url.match(/\/jobs\/([A-Za-z0-9\-]+)/i);
+    if (pathMatch) return pathMatch[1];
+
+    // --- 3. DOM-based: extract the human-readable SO# ---
     // Matches "SO # 31954-1", "SO #31954-1", "SO# 31954-1", "SalesOrder #31954-1"
     const soPattern = /\bSO\s*#\s*([\d]+-[\d]+|[\d]+)/i;
     const breadcrumbPattern = /SalesOrder\s*#([\d]+-[\d]+|[\d]+)/i;
 
-    // Check breadcrumb / nav links first (most reliable on ateasesystems.net)
-    const navTexts = Array.from(document.querySelectorAll('a, li, span, td, h1, h2, h3, .breadcrumb, [class*="breadcrumb"]'))
+    // Check headings first (page title area — most specific to current page)
+    const headings = Array.from(document.querySelectorAll(
+      'h1, h2, h3, [class*="title"], [class*="header"], [class*="heading"], [class*="page-title"]'
+    )).map(el => el.textContent.trim()).filter(t => t.length < 100);
+
+    for (const t of headings) {
+      const m = t.match(breadcrumbPattern) || t.match(soPattern);
+      if (m) return m[1];
+    }
+
+    // Check breadcrumb navigation
+    const breadcrumbs = Array.from(document.querySelectorAll(
+      '.breadcrumb, [class*="breadcrumb"], nav a, [aria-label*="breadcrumb"] a, [aria-label*="Breadcrumb"] a'
+    )).map(el => el.textContent.trim()).filter(t => t.length < 80);
+
+    for (const t of breadcrumbs) {
+      const m = t.match(breadcrumbPattern) || t.match(soPattern);
+      if (m) return m[1];
+    }
+
+    // Check other nav/link/span elements (but NOT td — too broad, would match table rows)
+    const navTexts = Array.from(document.querySelectorAll('a, li, span'))
       .map(el => el.textContent.trim())
       .filter(t => t.length < 80);
 
     for (const t of navTexts) {
-      let m = t.match(breadcrumbPattern) || t.match(soPattern);
+      const m = t.match(breadcrumbPattern) || t.match(soPattern);
       if (m) return m[1];
     }
 
-    // Check full page body text for "SO # XXXXX" pattern
+    // --- 4. Full body text (last resort) ---
     const bodyText = document.body?.innerText || '';
     const bodyMatch = bodyText.match(soPattern);
     if (bodyMatch) return bodyMatch[1];
 
-    // Check data attributes
+    // --- 5. Data attributes ---
     const selectors = ['[data-order-id]', '[data-so-id]', '[data-job-id]'];
     for (const sel of selectors) {
       const el = document.querySelector(sel);
@@ -40,20 +73,6 @@
         if (val) return val;
       }
     }
-
-    // --- URL fallback (returns internal DB id, not SO#, but better than nothing) ---
-
-    // Query params: ?soId=12345 or ?jobId=12345 or ?orderId=12345
-    const params = new URLSearchParams(window.location.search);
-    for (const key of ['soId', 'jobId', 'orderId', 'so_id', 'job_id', 'order_id', 'id']) {
-      if (params.get(key)) return params.get(key);
-    }
-
-    // Pattern: /SalesOrder/Details/12345 or /orders/sales-orders/12345 or /jobs/12345
-    let m = url.match(/\/SalesOrder\/Details\/([A-Za-z0-9\-]+)/)
-      || url.match(/\/orders\/sales-orders\/([A-Za-z0-9\-]+)/)
-      || url.match(/\/jobs\/([A-Za-z0-9\-]+)/);
-    if (m) return m[1];
 
     return null;
   }
@@ -64,11 +83,18 @@
     chrome.runtime.sendMessage({ type: 'ORDER_DETECTED', orderNumber });
   }
 
+  function notifyOrderCleared() {
+    chrome.runtime.sendMessage({ type: 'ORDER_CLEARED' });
+  }
+
   // --- Init ---
 
   const orderNumber = detectOrderNumber();
   if (orderNumber) {
     notifyOrderDetected(orderNumber);
+  } else {
+    // Clear any stale order from a previous page visit
+    notifyOrderCleared();
   }
 
   // Watch for SPA navigation (URL changes without page reload)
@@ -77,7 +103,11 @@
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       const newOrder = detectOrderNumber();
-      if (newOrder) notifyOrderDetected(newOrder);
+      if (newOrder) {
+        notifyOrderDetected(newOrder);
+      } else {
+        notifyOrderCleared();
+      }
     }
   }).observe(document.body, { subtree: true, childList: true });
 

@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
   "name": "CG Pricing Agent",
-  "version": "2.0",
+  "version": "2.1",
   "description": "AI pricing assistant side panel for Syncore sales orders",
   "permissions": ["storage", "activeTab", "tabs", "sidePanel"],
-  "host_permissions": ["*://app.syncore.app/*", "*://*.syncore.app/*", "*://*.ateasesystems.net/*"],
+  "host_permissions": [
+    "*://app.syncore.app/*",
+    "*://*.syncore.app/*",
+    "*://*.ateasesystems.net/*",
+    "http://localhost:*/*",
+    "https://*.hosted.app/*",
+    "https://*.run.app/*",
+    "https://cg-dashboard-ai.netlify.app/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -19,7 +27,6 @@
     "default_path": "side_panel.html"
   },
   "action": {
-    "default_popup": "popup.html",
     "default_title": "CG Pricing Agent"
   },
   "options_page": "options.html",

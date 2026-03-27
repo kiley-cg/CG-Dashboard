@@ -7,16 +7,17 @@ registerTool({
   inputSchema: {
     type: 'object',
     properties: {
-      sales_order_id: { type: 'number', description: 'The sales order ID' },
+      job_id: { type: 'number', description: 'The job ID (from lookup_order)' },
+      sales_order_id: { type: 'number', description: 'The sales order ID (from lookup_order)' },
       line_id: { type: 'number', description: 'The line item ID' },
       price: { type: 'number', description: 'The calculated retail price per unit, rounded to 2 decimal places' },
       reason: { type: 'string', description: 'Brief explanation of how this price was calculated' }
     },
-    required: ['sales_order_id', 'line_id', 'price']
+    required: ['job_id', 'sales_order_id', 'line_id', 'price']
   },
   execute: async (input) => {
-    const { sales_order_id, line_id, price, reason } = input as { sales_order_id: number; line_id: number; price: number; reason?: string }
-    await updateLinePrice(sales_order_id, line_id, price)
+    const { job_id, sales_order_id, line_id, price, reason } = input as { job_id: number; sales_order_id: number; line_id: number; price: number; reason?: string }
+    await updateLinePrice(sales_order_id, line_id, price, job_id)
     return { success: true, line_id, price, reason }
   }
 })

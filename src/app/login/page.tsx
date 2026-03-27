@@ -1,19 +1,32 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+const ERROR_MESSAGES: Record<string, string> = {
+  Configuration: 'Authentication is not configured on this server. Contact your administrator to set up Google OAuth credentials.',
+  AccessDenied: 'Access denied. Your account is not authorized to use this application.',
+  Verification: 'The sign-in link is no longer valid. Please try again.',
+  OAuthSignin: 'Could not start the Google sign-in flow. Please try again.',
+  OAuthCallback: 'Error during Google sign-in callback. Please try again.',
+  Default: 'Sign in failed. Please try again.',
+}
+
+function LoginForm() {
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const urlError = searchParams.get('error')
+  const error = urlError ? (ERROR_MESSAGES[urlError] ?? ERROR_MESSAGES.Default) : localError
 
   async function handleSignIn() {
     setLoading(true)
-    setError(null)
+    setLocalError(null)
     try {
       await signIn('google', { callbackUrl: '/pricing' })
     } catch {
-      setError('Sign in failed. Please try again.')
+      setLocalError(ERROR_MESSAGES.Default)
     } finally {
       setLoading(false)
     }
@@ -28,14 +41,14 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
+          <div className="mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm text-left">
             {error}
           </div>
         )}
 
         <button
           onClick={handleSignIn}
-          disabled={loading}
+          disabled={loading || urlError === 'Configuration'}
           className="w-full flex items-center justify-center gap-3 bg-white border border-gray-300 rounded-lg px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
         >
           {loading ? (
@@ -49,6 +62,14 @@ export default function LoginPage() {
         </button>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }
 

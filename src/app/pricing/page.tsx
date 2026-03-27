@@ -4,8 +4,9 @@ import { PricingTool } from '@/components/PricingTool'
 import { signOut } from '@/lib/auth'
 
 export default async function PricingPage() {
+  const authRequired = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
   const session = await auth()
-  if (!session?.user) redirect('/login')
+  if (authRequired && !session?.user) redirect('/login')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -21,12 +22,16 @@ export default async function PricingPage() {
             <span className="font-semibold text-gray-900">Syncore AI</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-500">{session.user.email}</span>
-            <form action={async () => { 'use server'; await signOut({ redirectTo: '/login' }) }}>
-              <button type="submit" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
-                Sign out
-              </button>
-            </form>
+            {session?.user?.email && (
+              <span className="text-sm text-gray-500">{session.user.email}</span>
+            )}
+            {session?.user && (
+              <form action={async () => { 'use server'; await signOut({ redirectTo: '/login' }) }}>
+                <button type="submit" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                  Sign out
+                </button>
+              </form>
+            )}
           </div>
         </div>
       </header>
