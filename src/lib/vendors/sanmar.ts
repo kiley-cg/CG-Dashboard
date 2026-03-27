@@ -131,8 +131,8 @@ export async function getSanmarCost(
     const candidates = matched.length > 0 ? matched : (items as Record<string, unknown>[])
 
     for (const rec of candidates) {
-      // Prefer myPrice (customer-negotiated net), fall back to piecePrice
-      const cost = parsePrice(rec.myPrice) ?? parsePrice(rec.piecePrice)
+      // Prefer myPrice (customer-negotiated net), then salePrice, then casePrice
+      const cost = parsePrice(rec.myPrice) ?? parsePrice(rec.salePrice) ?? parsePrice(rec.casePrice)
       if (cost !== null) return { cost }
     }
 
