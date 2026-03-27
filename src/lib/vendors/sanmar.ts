@@ -24,21 +24,20 @@ async function getClient(): Promise<soap.Client> {
     'SanMar WSDL fetch'
   )
 
-  // node-soap sometimes nests methods under service/port instead of the root.
-  // If the method isn't at the root level, hoist it so call sites work uniformly.
-  if (typeof (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync !== 'function') {
+  // node-soap nests methods under service/port instead of the root.
+  // Hoist getPricingAsync to the root so call sites work uniformly.
+  if (typeof (client as unknown as Record<string, unknown>).getPricingAsync !== 'function') {
     const desc = client.describe() as Record<string, Record<string, Record<string, unknown>>>
     const serviceName = Object.keys(desc)[0]
     const portName = serviceName ? Object.keys(desc[serviceName])[0] : undefined
     if (serviceName && portName) {
       const port = (client as unknown as Record<string, Record<string, Record<string, unknown>>>)[serviceName]?.[portName]
-      if (port && typeof port.GetProductPricingAndConfigurationAsync === 'function') {
-        // Hoist to root
-        (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync =
-          port.GetProductPricingAndConfigurationAsync.bind(port)
+      if (port && typeof port.getPricingAsync === 'function') {
+        ;(client as unknown as Record<string, unknown>).getPricingAsync =
+          port.getPricingAsync.bind(port)
       } else {
         throw new Error(
-          `SanMar SOAP client missing method. Services: ${JSON.stringify(Object.keys(desc))}` +
+          `SanMar SOAP client missing getPricingAsync. Services: ${JSON.stringify(Object.keys(desc))}` +
           (serviceName && portName ? `, Methods: ${JSON.stringify(Object.keys(port ?? {}))}` : '')
         )
       }
@@ -49,7 +48,7 @@ async function getClient(): Promise<soap.Client> {
   return clientCache
 }
 
-/** Normalize size codes: "2XL" → "2XL", "XXL" → "2XL", etc. */
+/** Normalize size codes: "XXL" → "2XL", "XXXL" → "3XL", etc. */
 function normalizeSize(size: string): string {
   const s = size.toUpperCase().trim()
   const aliases: Record<string, string> = {
@@ -59,107 +58,76 @@ function normalizeSize(size: string): string {
   return aliases[s] ?? s
 }
 
-/** Pick the best price tier: highest quantityMin that is still ≤ requested qty */
-function bestPrice(
-  pricing: Record<string, unknown> | Record<string, unknown>[],
-  qty: number
-): number | null {
-  const prices = Array.isArray(pricing) ? pricing : [pricing]
-  let best: number | null = null
-  let bestMin = -1
-
-  for (const p of prices) {
-    // PromoStandards v2 uses quantityMin; some implementations expose minQuantity
-    const minQty = parseInt(String(p.quantityMin ?? p.minQuantity ?? 0))
-    if (qty >= minQty && minQty > bestMin) {
-      const price = parseFloat(String(p.price ?? p.salePrice ?? p.netPrice ?? 0))
-      if (price > 0) {
-        best = price
-        bestMin = minQty
-      }
-    }
-  }
-  return best
+/** Parse a price string/number, return null if zero or invalid */
+function parsePrice(val: unknown): number | null {
+  const n = parseFloat(String(val ?? ''))
+  return isFinite(n) && n > 0 ? n : null
 }
 
 export async function getSanmarCost(
   style: string,
   color: string,
   size: string,
-  qty: number
+  _qty: number
 ): Promise<{ cost: number | null; error?: string }> {
   try {
     const client = await getClient()
-    const args = {
-      wsVersion: '2.0.0',
-      id: process.env.SANMAR_API_USER,
-      password: process.env.SANMAR_API_PASSWORD,
-      productId: style,
-      // Don't pass partId — fetch all parts for the style and filter client-side.
-      // SanMar's internal part IDs use color codes, not color names.
-      partId: '',
-      currency: 'USD',
-      fobId: '',
-      priceType: 'Net',
-      localizationCountry: 'US',
-      localizationLanguage: 'en',
-      configurationType: 'Decorated',
+
+    // SanMar Standard getPricing: arg0 = product info, arg1 = credentials
+    const arg0 = {
+      style,
+      color,
+      size: normalizeSize(size),
+      casePrice: '',
+      dozenPrice: '',
+      inventoryKey: '',
+      myPrice: '',
+      piecePrice: '',
+      salePrice: '',
+      sizeIndex: '',
+    }
+    const arg1 = {
+      sanMarCustomerNumber: process.env.SANMAR_CUSTOMER_NUMBER ?? '',
+      sanMarUserName: process.env.SANMAR_API_USER ?? '',
+      sanMarUserPassword: process.env.SANMAR_API_PASSWORD ?? '',
     }
 
     const soapResult = await withTimeout(
-      client.GetProductPricingAndConfigurationAsync(args) as Promise<unknown[]>,
+      (client as unknown as Record<string, (a: unknown, b: unknown) => Promise<unknown[]>>)
+        .getPricingAsync(arg0, arg1),
       SOAP_TIMEOUT_MS,
       'SanMar pricing call'
     )
 
     const result = soapResult[0] as Record<string, unknown> | undefined
-    const rawParts =
-      (result?.GetProductPricingAndConfigurationResult as Record<string, unknown>)?.Part
-    if (!rawParts) {
-      const errData = result?.GetProductPricingAndConfigurationResult as Record<string, unknown>
-      const errMsg = errData?.errorMessage ?? errData?.serviceMessageArray ?? 'No parts returned'
-      return { cost: null, error: `SanMar returned no parts: ${JSON.stringify(errMsg)}` }
+    const ret = result?.return as Record<string, unknown> | undefined
+
+    // Check for API-level error
+    if (ret?.status === false || ret?.status === 'false') {
+      return { cost: null, error: `SanMar API error: ${String(ret?.message ?? 'unknown')}` }
     }
 
-    const partArray = Array.isArray(rawParts) ? rawParts : [rawParts]
-    const normalizedSize = normalizeSize(size)
-    const colorLower = color.toLowerCase().replace(/[-_\s]+/g, ' ').trim()
-
-    // Find the part matching our color + size
-    for (const part of partArray) {
-      const partId = String(part.partId ?? '')
-      // partId format is typically "STYLE-COLORCODE-SIZE" — match on size suffix
-      const partSizeMatch = partId.split('-').pop()?.toUpperCase()
-      const normalizePartSize = partSizeMatch ? normalizeSize(partSizeMatch) : ''
-
-      // Match by description if available (color name is in partDescription)
-      const description = String(part.partDescription ?? '').toLowerCase()
-      const sizeMatch =
-        normalizePartSize === normalizedSize ||
-        description.includes(normalizedSize.toLowerCase())
-      const colorMatch =
-        description.includes(colorLower) ||
-        colorLower.split(' ').every(word => description.includes(word))
-
-      if (!sizeMatch || !colorMatch) continue
-
-      const pricing = (part as Record<string, unknown>)?.PartPriceArray
-        ? ((part as Record<string, Record<string, unknown>>).PartPriceArray?.PartPrice)
-        : null
-      if (!pricing) continue
-
-      const price = bestPrice(pricing as Record<string, unknown> | Record<string, unknown>[], qty)
-      if (price !== null) return { cost: price }
+    const listResponse = ret?.listResponse
+    if (!listResponse) {
+      return { cost: null, error: `SanMar returned no listResponse. Full result: ${JSON.stringify(result)}` }
     }
 
-    // Nothing matched — return diagnostic info
-    const partSummary = partArray.slice(0, 5).map(p => ({
-      partId: (p as Record<string, unknown>).partId,
-      desc: (p as Record<string, unknown>).partDescription,
-    }))
+    const items = Array.isArray(listResponse) ? listResponse : [listResponse]
+    if (items.length === 0) {
+      return { cost: null, error: `SanMar returned empty listResponse for style=${style} color=${color} size=${size}` }
+    }
+
+    // The API already filters by style/color/size — take the first valid price
+    for (const item of items) {
+      const rec = item as Record<string, unknown>
+      // Prefer myPrice (customer-negotiated net), fall back to piecePrice
+      const cost = parsePrice(rec.myPrice) ?? parsePrice(rec.piecePrice)
+      if (cost !== null) return { cost }
+    }
+
     return {
       cost: null,
-      error: `No matching part for style=${style} color="${color}" size=${normalizedSize}. Sample parts: ${JSON.stringify(partSummary)}`,
+      error: `SanMar returned items but no valid price for style=${style} color=${color} size=${size}. Sample: ${JSON.stringify(items.slice(0, 2))}`,
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
