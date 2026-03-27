@@ -18,11 +18,34 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 
 async function getClient(): Promise<soap.Client> {
   if (clientCache) return clientCache
-  clientCache = await withTimeout(
+  const client = await withTimeout(
     soap.createClientAsync(process.env.SANMAR_PRICING_WSDL!),
     SOAP_TIMEOUT_MS,
     'SanMar WSDL fetch'
   )
+
+  // node-soap sometimes nests methods under service/port instead of the root.
+  // If the method isn't at the root level, hoist it so call sites work uniformly.
+  if (typeof (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync !== 'function') {
+    const desc = client.describe() as Record<string, Record<string, Record<string, unknown>>>
+    const serviceName = Object.keys(desc)[0]
+    const portName = serviceName ? Object.keys(desc[serviceName])[0] : undefined
+    if (serviceName && portName) {
+      const port = (client as unknown as Record<string, Record<string, Record<string, unknown>>>)[serviceName]?.[portName]
+      if (port && typeof port.GetProductPricingAndConfigurationAsync === 'function') {
+        // Hoist to root
+        (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync =
+          port.GetProductPricingAndConfigurationAsync.bind(port)
+      } else {
+        throw new Error(
+          `SanMar SOAP client missing method. Services: ${JSON.stringify(Object.keys(desc))}` +
+          (serviceName && portName ? `, Methods: ${JSON.stringify(Object.keys(port ?? {}))}` : '')
+        )
+      }
+    }
+  }
+
+  clientCache = client
   return clientCache
 }
 
