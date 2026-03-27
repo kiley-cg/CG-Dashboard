@@ -89,9 +89,10 @@ export async function getSanmarCost(
       sanMarUserPassword: process.env.SANMAR_API_PASSWORD ?? '',
     }
 
+    // SanMar uses document/literal wrapped WSDL — both params go in one wrapper object.
     const soapResult = await withTimeout(
-      (client as unknown as Record<string, (a: unknown, b: unknown) => Promise<unknown[]>>)
-        .getPricingAsync(arg0, arg1),
+      (client as unknown as Record<string, (a: unknown) => Promise<unknown[]>>)
+        .getPricingAsync({ arg0, arg1 }),
       SOAP_TIMEOUT_MS,
       'SanMar pricing call'
     )
@@ -143,7 +144,9 @@ export async function getSanmarCost(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('SanMar SOAP error:', message)
+    const client = clientCache
+    const lastReq = client ? (client as unknown as Record<string, unknown>).lastRequest : undefined
+    console.error('SanMar SOAP error:', message, lastReq ? `\nLast request XML:\n${lastReq}` : '')
     return { cost: null, error: `SanMar SOAP error: ${message}` }
   }
 }
