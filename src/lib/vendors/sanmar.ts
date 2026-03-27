@@ -26,16 +26,16 @@ async function getClient(): Promise<soap.Client> {
 
   // node-soap sometimes nests methods under service/port instead of the root.
   // If the method isn't at the root level, hoist it so call sites work uniformly.
-  if (typeof (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync !== 'function') {
+  if (typeof (client as unknown as Record<string, unknown>).getPricingAsync !== 'function') {
     const desc = client.describe() as Record<string, Record<string, Record<string, unknown>>>
     const serviceName = Object.keys(desc)[0]
     const portName = serviceName ? Object.keys(desc[serviceName])[0] : undefined
     if (serviceName && portName) {
       const port = (client as unknown as Record<string, Record<string, Record<string, unknown>>>)[serviceName]?.[portName]
-      if (port && typeof port.GetProductPricingAndConfigurationAsync === 'function') {
+      if (port && typeof port.getPricingAsync === 'function') {
         // Hoist to root
-        (client as unknown as Record<string, unknown>).GetProductPricingAndConfigurationAsync =
-          port.GetProductPricingAndConfigurationAsync.bind(port)
+        (client as unknown as Record<string, unknown>).getPricingAsync =
+          port.getPricingAsync.bind(port)
       } else {
         throw new Error(
           `SanMar SOAP client missing method. Services: ${JSON.stringify(Object.keys(desc))}` +
@@ -91,7 +91,7 @@ export async function getSanmarCost(
   try {
     const client = await getClient()
     const args = {
-      wsVersion: '2.0.0',
+      wsVersion: '1.0.0',
       id: process.env.SANMAR_API_USER,
       password: process.env.SANMAR_API_PASSWORD,
       productId: style,
@@ -107,16 +107,16 @@ export async function getSanmarCost(
     }
 
     const soapResult = await withTimeout(
-      client.GetProductPricingAndConfigurationAsync(args) as Promise<unknown[]>,
+      (client as unknown as Record<string, (a: unknown) => Promise<unknown[]>>).getPricingAsync(args),
       SOAP_TIMEOUT_MS,
       'SanMar pricing call'
     )
 
     const result = soapResult[0] as Record<string, unknown> | undefined
     const rawParts =
-      (result?.GetProductPricingAndConfigurationResult as Record<string, unknown>)?.Part
+      (result?.getPricingResult as Record<string, unknown>)?.Part
     if (!rawParts) {
-      const errData = result?.GetProductPricingAndConfigurationResult as Record<string, unknown>
+      const errData = result?.getPricingResult as Record<string, unknown>
       const errMsg = errData?.errorMessage ?? errData?.serviceMessageArray ?? 'No parts returned'
       return { cost: null, error: `SanMar returned no parts: ${JSON.stringify(errMsg)}` }
     }
