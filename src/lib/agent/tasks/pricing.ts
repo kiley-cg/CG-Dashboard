@@ -39,10 +39,10 @@ The Syncore API returns a flat list of line items with a "type" field and a "par
 5. **For each garment line**:
    - Parse style, color, size from the SKU or description
    - Call get_vendor_cost_sanmar or get_vendor_cost_ss with the TOTAL order quantity
-   - Call calculate_price with line_type="garment", vendor_cost, quantity=TOTAL_QTY
+   - Call calculate_price with line_type="garment", vendor_cost, quantity=TOTAL_QTY (no price_list needed — it's cached)
 6. **For each decoration line**:
    - Parse technique (screenPrint, embroidery, patch), colors/stitches/patches count, and grid name (Darks/Lights/Specialty or Standard or Hats/Flats)
-   - Call calculate_price with line_type="decoration", decoration_type, row_key (colors or stitch count as string), grid_name, quantity=TOTAL_QTY
+   - Call calculate_price with line_type="decoration", decoration_type, row_key (colors or stitch count as string), grid_name, quantity=TOTAL_QTY (no price_list needed — it's cached)
 7. **For service lines**: Look up in price_list.additionalServices by name match, use the retailPrice
 8. **Output a [PROPOSAL] JSON block** summarizing all calculated prices (before writing anything)
 9. **If in apply mode**: call set_line_price for each line with a calculated price — always pass job_id, sales_order_id, and line_id from lookup_order/get_sales_order_lines
