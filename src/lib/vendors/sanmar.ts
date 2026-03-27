@@ -73,18 +73,15 @@ export async function getSanmarCost(
   try {
     const client = await getClient()
 
-    // SanMar Standard getPricing: arg0 = product info, arg1 = credentials
+    // SanMar Standard getPricing: arg0 = product lookup, arg1 = credentials.
+    // Only send style/color/size — the extra response fields (casePrice, etc.)
+    // cause a server-side NullPointerException when sent as empty strings.
+    // Pass empty string for color/size to fetch all variants, then filter below.
+    const normalizedSize = normalizeSize(size)
     const arg0 = {
       style,
-      color,
-      size: normalizeSize(size),
-      casePrice: '',
-      dozenPrice: '',
-      inventoryKey: '',
-      myPrice: '',
-      piecePrice: '',
-      salePrice: '',
-      sizeIndex: '',
+      color: '',
+      size: '',
     }
     const arg1 = {
       sanMarCustomerNumber: process.env.SANMAR_CUSTOMER_NUMBER ?? '',
@@ -114,12 +111,26 @@ export async function getSanmarCost(
 
     const items = Array.isArray(listResponse) ? listResponse : [listResponse]
     if (items.length === 0) {
-      return { cost: null, error: `SanMar returned empty listResponse for style=${style} color=${color} size=${size}` }
+      return { cost: null, error: `SanMar returned empty listResponse for style=${style}` }
     }
 
-    // The API already filters by style/color/size — take the first valid price
-    for (const item of items) {
-      const rec = item as Record<string, unknown>
+    // Filter to matching color + size (case-insensitive).
+    // SanMar color names may differ slightly (e.g. "Bright Red" vs "BRIGHT RED"),
+    // so we normalize spaces and case for comparison.
+    const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+    const targetColor = normalize(color)
+    const targetSize = normalizedSize.toUpperCase()
+
+    const matched = (items as Record<string, unknown>[]).filter(rec => {
+      const c = normalize(String(rec.color ?? ''))
+      const s = String(rec.size ?? '').toUpperCase().trim()
+      return c === targetColor && s === targetSize
+    })
+
+    // Fall back to all items if no color+size match (so we always return something useful)
+    const candidates = matched.length > 0 ? matched : (items as Record<string, unknown>[])
+
+    for (const rec of candidates) {
       // Prefer myPrice (customer-negotiated net), fall back to piecePrice
       const cost = parsePrice(rec.myPrice) ?? parsePrice(rec.piecePrice)
       if (cost !== null) return { cost }
@@ -127,7 +138,8 @@ export async function getSanmarCost(
 
     return {
       cost: null,
-      error: `SanMar returned items but no valid price for style=${style} color=${color} size=${size}. Sample: ${JSON.stringify(items.slice(0, 2))}`,
+      error: `SanMar returned items but no valid price for style=${style} color=${color} size=${normalizedSize}. ` +
+        `Matched ${matched.length}/${items.length} items. Sample: ${JSON.stringify(items.slice(0, 2))}`,
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
