@@ -7,10 +7,12 @@ chrome.action.onClicked.addListener((tab) => {
 
 // Receive order number from content script → store it in session storage
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.type !== 'ORDER_DETECTED') return;
-
   const tabId = sender.tab?.id;
   if (!tabId) return;
 
-  chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
+  if (msg.type === 'ORDER_DETECTED') {
+    chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
+  } else if (msg.type === 'ORDER_CLEARED') {
+    chrome.storage.session.remove(['orderNumber']);
+  }
 });

@@ -10,7 +10,8 @@
     "*://*.ateasesystems.net/*",
     "http://localhost:*/*",
     "https://*.hosted.app/*",
-    "https://*.run.app/*"
+    "https://*.run.app/*",
+    "https://cg-dashboard-ai.netlify.app/*"
   ],
   "background": {
     "service_worker": "background.js"
