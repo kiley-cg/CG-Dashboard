@@ -25,6 +25,10 @@ function getApp(): App {
 // made in cgdecoration are immediately reflected here — no static fallbacks.
 
 const CG_PRICING_PROJECT = 'cg-pricing-calculator'
+// Public web API key for cg-pricing-calculator (cgdecoration.netlify.app).
+// This is a Firebase *web* API key — not a secret. It's safe to embed in code.
+// Security is enforced by Firestore rules (priceLists: allow read: if true).
+const CG_PRICING_API_KEY = process.env.CG_PRICING_FIREBASE_API_KEY ?? 'AIzaSyClU1aZ8Gx7kOkk5vm2zgM2hkZ0dqUPhtM'
 
 /** Recursively convert a Firestore REST API value object to a plain JS value */
 function fromFirestoreValue(val: Record<string, unknown>): unknown {
@@ -57,10 +61,7 @@ function fromFirestoreDoc(fields: Record<string, Record<string, unknown>>): Reco
 }
 
 async function fetchFromCgPricingFirestore(): Promise<PriceList | null> {
-  const apiKey = process.env.CG_PRICING_FIREBASE_API_KEY
-  if (!apiKey) return null
-
-  const url = `https://firestore.googleapis.com/v1/projects/${CG_PRICING_PROJECT}/databases/(default)/documents:runQuery?key=${apiKey}`
+  const url = `https://firestore.googleapis.com/v1/projects/${CG_PRICING_PROJECT}/databases/(default)/documents:runQuery?key=${CG_PRICING_API_KEY}`
 
   const res = await fetch(url, {
     method: 'POST',
