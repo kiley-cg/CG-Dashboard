@@ -14,7 +14,7 @@ let selectedDecorator = '';
 let selectedDecoType = '';
 let selectedDecoGrid = '';
 
-const DECO_GRIDS = {
+let DECO_GRIDS = {
   screenPrint: ['Darks', 'Lights', 'Specialty'],
   embroidery: ['Standard'],
   patch: ['Hats', 'Flats'],
@@ -42,6 +42,7 @@ async function init() {
   apiKey = local.apiKey || '';
 
   loadPriceLists();
+  loadDecorationGrids();
 
   activeTabId = tabs[0]?.id ?? null;
   if (activeTabId) {
@@ -96,6 +97,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     dashboardUrl = changes.dashboardUrl?.newValue || dashboardUrl;
     apiKey = changes.apiKey?.newValue || apiKey;
     loadPriceLists();
+    loadDecorationGrids();
   }
 });
 
@@ -121,6 +123,23 @@ async function loadPriceLists() {
       '<option value="">Auto-detect</option>' +
       '<option value="frontier">Frontier</option>' +
       '<option value="oregon-screen-impressions">Oregon Screen Impressions</option>';
+  }
+}
+
+async function loadDecorationGrids() {
+  try {
+    const res = await fetch(dashboardUrl + '/api/decoration-grids', {
+      headers: apiKey ? { 'x-extension-api-key': apiKey } : {}
+    });
+    if (!res.ok) throw new Error('Failed to load');
+    DECO_GRIDS = await res.json();
+    // Refresh grid options if a deco type is already selected
+    if (selectedDecoType && DECO_GRIDS[selectedDecoType]) {
+      decoGridEl.innerHTML = '<option value="">All grids</option>' +
+        DECO_GRIDS[selectedDecoType].map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+    }
+  } catch {
+    // Keep the hardcoded defaults
   }
 }
 
