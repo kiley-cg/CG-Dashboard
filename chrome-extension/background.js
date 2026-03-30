@@ -5,14 +5,14 @@ chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
-// Receive order number from content script → store it in session storage
+// Receive order number from content script → store it per-tab in session storage
 chrome.runtime.onMessage.addListener((msg, sender) => {
   const tabId = sender.tab?.id;
   if (!tabId) return;
 
   if (msg.type === 'ORDER_DETECTED') {
-    chrome.storage.session.set({ orderNumber: msg.orderNumber, tabId });
+    chrome.storage.session.set({ [`order_${tabId}`]: msg.orderNumber });
   } else if (msg.type === 'ORDER_CLEARED') {
-    chrome.storage.session.remove(['orderNumber']);
+    chrome.storage.session.remove([`order_${tabId}`]);
   }
 });

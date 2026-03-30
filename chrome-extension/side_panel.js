@@ -6,6 +6,7 @@
 'use strict';
 
 let orderNumber = null;
+let activeTabId = null;
 let proposal = null;
 let dashboardUrl = 'https://cg-dashboard-ai.netlify.app';
 let apiKey = '';
@@ -32,8 +33,8 @@ function showState(name) {
 // --- Init: load settings + current order from session storage ---
 
 async function init() {
-  const [session, local] = await Promise.all([
-    chrome.storage.session.get(['orderNumber']),
+  const [tabs, local] = await Promise.all([
+    chrome.tabs.query({ active: true, currentWindow: true }),
     chrome.storage.local.get(['dashboardUrl', 'apiKey']),
   ]);
 
@@ -42,8 +43,15 @@ async function init() {
 
   loadPriceLists();
 
-  if (session.orderNumber) {
-    activateOrder(session.orderNumber);
+  activeTabId = tabs[0]?.id ?? null;
+  if (activeTabId) {
+    const session = await chrome.storage.session.get([`order_${activeTabId}`]);
+    const stored = session[`order_${activeTabId}`];
+    if (stored) {
+      activateOrder(stored);
+    } else {
+      showState('waiting');
+    }
   } else {
     showState('waiting');
   }
@@ -69,17 +77,19 @@ function activateOrder(num) {
 
 // React when content script detects a new order (SPA navigation)
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'session' && changes.orderNumber) {
-    const newOrder = changes.orderNumber.newValue;
-    if (!newOrder) {
-      // Order was cleared (navigated away from order page)
-      orderNumber = null;
-      proposal = null;
-      document.getElementById('order-badge').classList.add('hidden');
-      document.getElementById('btn-run').disabled = true;
-      showState('waiting');
-    } else if (newOrder !== orderNumber) {
-      activateOrder(newOrder);
+  if (area === 'session' && activeTabId) {
+    const key = `order_${activeTabId}`;
+    if (changes[key]) {
+      const newOrder = changes[key].newValue;
+      if (!newOrder) {
+        orderNumber = null;
+        proposal = null;
+        document.getElementById('order-badge').classList.add('hidden');
+        document.getElementById('btn-run').disabled = true;
+        showState('waiting');
+      } else if (newOrder !== orderNumber) {
+        activateOrder(newOrder);
+      }
     }
   }
   if (area === 'local' && (changes.dashboardUrl || changes.apiKey)) {
