@@ -36,13 +36,8 @@ The Syncore API returns a flat list of line items with a "type" field and a "par
    - Identify all Size lines (have vendor SKU, quantity, color/size)
    - Identify all ImprintLocation lines — read their decoration specs: technique, colors/stitches, grid (Darks/Lights/Specialty/Standard/etc.)
    - Sum total garment quantity across all Size lines
-5. **Build the decorations list** from all ImprintLocation lines. Example:
-   ```
-   decorations = [
-     { decoration_type: "screenPrint", row_key: "1", grid_name: "Darks" },  // left chest 1 color
-     { decoration_type: "screenPrint", row_key: "3", grid_name: "Darks" },  // full back 3 colors
-   ]
-   ```
+5. **Build the decorations list** from all ImprintLocation lines. Example for a left chest (1 color) + full back (3 colors) order:
+   decorations = [{ decoration_type: "screenPrint", row_key: "1", grid_name: "Darks" }, { decoration_type: "screenPrint", row_key: "3", grid_name: "Darks" }]
 6. **For each Size line**, call calculate_price with:
    - vendor_cost = cost from get_vendor_cost_sanmar or get_vendor_cost_ss
    - quantity = TOTAL order quantity (all sizes combined)
