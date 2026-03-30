@@ -1,45 +1,58 @@
 const BASE = process.env.SS_API_BASE_URL || 'https://api.ssactivewear.com/v2'
 
-interface SSPricingTier {
-  minQty: number
-  maxQty: number | null
-  price: number
-}
-
 export async function getSSCost(
   style: string,
   color: string,
   size: string,
-  qty: number
+  _qty: number
 ): Promise<number | null> {
   try {
-    const credentials = Buffer.from(`${process.env.SS_CUSTOMER_NUMBER}:${process.env.SS_API_KEY}`).toString('base64')
-    const res = await fetch(`${BASE}/products/${style}?fields=pricing`, {
+    const credentials = Buffer.from(
+      `${process.env.SS_CUSTOMER_NUMBER}:${process.env.SS_API_KEY}`
+    ).toString('base64')
+
+    const res = await fetch(`${BASE}/products/${encodeURIComponent(style)}`, {
       headers: {
         'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
     })
-    if (!res.ok) return null
+
+    if (!res.ok) {
+      console.error(`S&S API ${res.status} for style ${style}`)
+      return null
+    }
 
     const data = await res.json()
-    const products = Array.isArray(data) ? data : [data]
+    const variants: Record<string, unknown>[] = Array.isArray(data) ? data : [data]
 
-    // Find matching product by color/size
-    const match = products.find((p: Record<string, unknown>) => {
-      const pColor = String(p.colorCode || p.color || '').toLowerCase()
-      const pSize = String(p.sizeCode || p.size || '').toLowerCase()
-      return pColor.includes(color.toLowerCase()) || pSize.includes(size.toLowerCase())
-    }) || products[0]
+    if (variants.length === 0) return null
 
-    if (!match?.pricing) return null
+    const colorLower = color.toLowerCase()
+    const sizeLower = size.toLowerCase()
 
-    const tiers: SSPricingTier[] = match.pricing
-    const sorted = [...tiers].sort((a, b) => b.minQty - a.minQty)
-    for (const tier of sorted) {
-      if (qty >= tier.minQty) return tier.price
+    // Try exact color+size match first
+    let match = variants.find(v => {
+      const c = String(v.colorCode || v.colorName || v.color || '').toLowerCase()
+      const s = String(v.sizeCode || v.sizeName || v.size || '').toLowerCase()
+      return c.includes(colorLower) && s.includes(sizeLower)
+    })
+
+    // Fall back to color-only match (price doesn't vary by size at S&S)
+    if (!match) {
+      match = variants.find(v => {
+        const c = String(v.colorCode || v.colorName || v.color || '').toLowerCase()
+        return c.includes(colorLower)
+      })
     }
-    return tiers[0]?.price ?? null
+
+    // Last resort: first variant
+    if (!match) match = variants[0]
+    if (!match) return null
+
+    // S&S v2 API returns yourPrice (account price), salePrice, or price fields
+    const price = match.yourPrice ?? match.salePrice ?? match.price1 ?? match.price
+    return price != null ? Number(price) : null
   } catch (err) {
     console.error('S&S API error:', err)
     return null
