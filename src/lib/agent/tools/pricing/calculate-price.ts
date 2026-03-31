@@ -41,9 +41,10 @@ Requires get_active_price_list to have been called first (loads data into cache 
           properties: {
             decoration_type: { type: 'string', enum: ['screenPrint', 'embroidery', 'patch'], description: 'Technique' },
             row_key: { type: 'string', description: 'Number of colors (screen print/patch) or stitch count (embroidery)' },
-            grid_name: { type: 'string', description: '"Darks", "Lights", "Specialty", "Standard", "Hats", or "Flats"' },
+            grid_name: { type: 'string', description: 'Grid name exactly as returned by get_active_price_list (e.g. "Darks", "Lights", "Specialty", "Standard", "Hats", "Flats", or any custom grid name)' },
           },
-          required: ['decoration_type', 'row_key', 'grid_name']
+          required: ['decoration_type', 'row_key', 'grid_name'],
+          description: 'Use the grid names returned by get_active_price_list (e.g. "Darks", "Lights", "Specialty", "Water Based, Discharge, Cinch Bags", "Standard", "Hats", "Flats", or any custom grid name from the active price list)'
         }
       }
     },
