@@ -7,14 +7,19 @@ export async function getSSCost(
   _qty: number
 ): Promise<number | null> {
   try {
-    const credentials = Buffer.from(
-      `${process.env.SS_CUSTOMER_NUMBER}:${process.env.SS_API_KEY}`
-    ).toString('base64')
+    const customerNumber = process.env.SS_CUSTOMER_NUMBER
+    const apiKey = process.env.SS_API_KEY
+    if (!customerNumber || !apiKey) {
+      console.error('S&S API: SS_CUSTOMER_NUMBER or SS_API_KEY not set')
+      return null
+    }
+
+    const credentials = Buffer.from(`${customerNumber}:${apiKey}`).toString('base64')
 
     const res = await fetch(`${BASE}/products/${encodeURIComponent(style)}`, {
       headers: {
         'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
     })
 

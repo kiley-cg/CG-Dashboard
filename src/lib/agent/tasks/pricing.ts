@@ -46,10 +46,7 @@ The Syncore API returns a flat list of line items with a "type" field and a "par
    The tool returns the all-in price: garment retail + all decoration retails summed.
 7. **For service lines** (SetupCharge/RunCharge): look up in price_list.additionalServices by name match, use the retailPrice
 8. **Output a [PROPOSAL] JSON block** summarizing all calculated prices (before writing anything)
-9. **If in apply mode**: call set_line_price for each Size line and service line — skip ImprintLocation lines
-7. **For service lines**: Look up in price_list.additionalServices by name match, use the retailPrice
-8. **Output a [PROPOSAL] JSON block** summarizing all calculated prices (before writing anything)
-9. **If in apply mode**: call set_line_price for each line with a calculated price — always pass job_id, sales_order_id, and line_id from lookup_order/get_sales_order_lines
+9. **If in apply mode**: call set_line_price for each line with a calculated price — always pass job_id, sales_order_id, and line_id from lookup_order/get_sales_order_lines — skip ImprintLocation lines (skip=true)
 
 ## Important Rules
 
